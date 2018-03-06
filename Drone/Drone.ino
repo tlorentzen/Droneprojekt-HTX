@@ -5,7 +5,7 @@
 #include <RF24_config.h>
 #include <RF24.h>
 
-RF24 radio(A0, 8);
+RF24 radio(A0, 10);
 
 // Unique transmitting pipe ids
 const uint64_t pipeIn  = 0xE8E8F0F0E1LL;
@@ -73,15 +73,19 @@ void sendFeedback(){
 void sendinstructions() {
   byte b[4];
 
+  /*
   data.throttle = 10;
   data.yaw = 20;
   data.pitch = 30;
   data.roll = 40;
+  */
 
   b[0] = data.throttle;
   b[1] = data.yaw;
   b[2] = data.pitch;
   b[3] = data.roll;
+
+  Serial.println("Forwardding throttle: "+String(data.throttle));
 
   Wire.beginTransmission(8); // transmit to device #8
   Wire.write(b, sizeof(b));        // sends five bytes

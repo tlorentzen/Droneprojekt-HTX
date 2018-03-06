@@ -11,10 +11,10 @@ const uint64_t pipeOut = 0xE8E8F0F0E1LL;
 const uint64_t pipeIn  = 0xE7E8F0F0E1LL;
 
 struct instruction {
-  byte throttle; //We define each byte of data input, in this case just 6 channels
+  byte throttle = 0; //We define each byte of data input, in this case just 6 channels
   byte yaw;
-  byte pitch;
-  byte roll;
+  byte pitch = 127;
+  byte roll = 127;
   byte AUX1;
   byte AUX2;
 };
@@ -23,6 +23,8 @@ struct drone_feedback {
   byte battery;
   byte error = 0;
 };
+
+int value = 0;
 
 instruction data;
 drone_feedback feedback;
@@ -45,13 +47,13 @@ void setup() {
 
   radio.printDetails();
 
-  data.throttle = 10;
+  //data.throttle = 10;
 
 }
 
 void loop() {
 
-  data.throttle++;
+  //data.throttle++;
 
   if (radio.available())
   {
@@ -62,7 +64,17 @@ void loop() {
   radio.stopListening();
   radio.write(&data, sizeof(data));
   radio.startListening();
-  
+
+  if(Serial.available()){
+    value = Serial.parseInt();
+
+    if(value > 72){
+      value = 36;
+    }
+    
+    data.throttle = value;
+    Serial.println("Throttle set to: "+String(value));
+  }
   
   delay(500);
   
