@@ -27,7 +27,6 @@ void setup() {
   M4.attach(9);  // BL
 
   
-  
 }
 
 void setSpeed(Servo ESC, int speed){
@@ -84,37 +83,107 @@ void throttle(int value)
 
 void yaw(int value)
 {
-  
+  /*
+  int lvalue = 125;
+  int hvalue = 125;
+
+  if(value > 125){
+    // Right
+    lvalue = value;
+    hvalue = (125-(value-125));
+
+    // Right engines
+    setSpeed(M1, rvalue);
+    setSpeed(M2, rvalue);
+    // Left engines
+    setSpeed(M3, lvalue);
+    setSpeed(M4, lvalue);
+    
+  }else if(value < 125){
+    // Left
+    lvalue = value;
+    rvalue = (125+(125-value));
+
+    // Right engines
+    setSpeed(M1, rvalue);
+    setSpeed(M2, rvalue);
+    // Left engines
+    setSpeed(M3, lvalue);
+    setSpeed(M4, lvalue);
+  }else{
+    // Zero out.
+    // TODO??
+  }
+  */
 }
 
 void pitch(int value)
 {
-  /*
-  if(value == 127){
+
+  int fvalue = 125;
+  int bvalue = 125;
+
+  if(value > 125){
+    // Forward
+    fvalue = (125-(value-125));
+    bvalue = value;
+
+    // Front engines
+    setSpeed(M1, fvalue);
+    setSpeed(M3, fvalue);
+    // Back engines
+    setSpeed(M2, bvalue);
+    setSpeed(M4, bvalue);
     
-  }else if(value > 127){
-    
+  }else if(value < 125){
+    // Backward
+    fvalue = (125+(125-value));
+    bvalue = value;
+
+    // Front engines
+    setSpeed(M1, fvalue);
+    setSpeed(M3, fvalue);
+    // Back engines
+    setSpeed(M2, bvalue);
+    setSpeed(M4, bvalue);
+  }else{
+    // Zero out.
+    // TODO??
   }
-  
-  M1.attach(8);  // BR
-  M2.attach(7);  // FL
-  M3.attach(10); // FR
-  M4.attach(9);  // BL
-
-  // Forward
-  setSpeed(M1, value);
-  setSpeed(M4, value);
-
-  setSpeed(M2, );
-  
-*/
-  
-    
 }
 
 void roll(int value)
 {
-  
+  int lvalue = 125;
+  int rvalue = 125;
+
+  if(value > 125){
+    // Right
+    lvalue = value;
+    rvalue = (125-(value-125));
+
+    // Right engines
+    setSpeed(M1, rvalue);
+    setSpeed(M4, rvalue);
+    // Left engines
+    setSpeed(M2, lvalue);
+    setSpeed(M3, lvalue);
+    
+  }else if(value < 125){
+    // Left
+    lvalue = value;
+    rvalue = (125+(125-value));
+
+    // Right engines
+    setSpeed(M1, rvalue);
+    setSpeed(M4, rvalue);
+    // Left engines
+    setSpeed(M2, lvalue);
+    setSpeed(M3, lvalue);
+  }else{
+    // Zero out.
+    // TODO??
+  }
 }
 
 
