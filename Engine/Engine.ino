@@ -1,7 +1,17 @@
+#include <ESC.h>
 #include <Wire.h>
-#include <Servo.h>
 
-Servo M1, M2, M3, M4;
+ESC M1 (8, 1000, 2000, 500);
+ESC M2 (7, 1000, 2000, 500);
+ESC M3 (10, 1000, 2000, 500);
+ESC M4 (9, 1000, 2000, 500);
+
+#define PITCH_MIN -30
+#define PITCH_MAX 30
+#define ROLL_MIN -30
+#define ROLL_MAX 30
+#define YAW_MIN -180
+#define YAW_MAX 180
 
 struct instruction {
   byte throttle; //We define each byte of data input, in this case just 6 channels
@@ -17,26 +27,39 @@ byte latest_throttle = 0;
 instruction data;
 
 void setup() {
+
+  /*
   Wire.begin(8);                // join i2c bus with address #8
   Wire.onReceive(receiveEvent); // register event
+  */
   Serial.begin(9600);           // start serial for output
-
-  M1.attach(8);  // BR
-  M2.attach(7);  // FL
-  M3.attach(10); // FR
-  M4.attach(9);  // BL
-
   
-}
+  M1.arm();
+  M2.arm();
+  M3.arm();
+  M4.arm();
 
-void setSpeed(Servo ESC, int speed){
+  Serial.println("Ready!");
+}
+/*
+void setSpeed(ESC M, int speed){
   int angle = map(speed, 0, 360, 0, 360); //Sets servo positions to different speeds ESC1.write(angle);
   ESC.write(angle);
 }
+**/
 
 void loop() {
-  delay(10);
+  //delay(10);
+
+  if(Serial.available()){
+      int value = Serial.parseInt();
+      Serial.println("Speed set to: "+String(value));
+      throttle(value);
+
+      
+  }
 }
+
 
 // function that executes whenever data is received from master
 // this function is registered as an event, see setup()
@@ -60,25 +83,13 @@ void receiveEvent(int howMany) {
 
 void throttle(int value)
 {
- 
+  value = map(value, 0, 250, 1000, 2000);
   Serial.println("Throttle: "+String(value));
 
-  //if(latest_throttle != value){
-    if(value > 72){
-      value = 36;
-      setSpeed(M1, 36);
-      setSpeed(M2, 36);
-      setSpeed(M3, 36);
-      setSpeed(M4, 36);
-    }else{
-      setSpeed(M1, value);
-      setSpeed(M2, value);
-      setSpeed(M3, value);
-      setSpeed(M4, value);
-    }
-  //}
-
-  latest_throttle = value;
+  M1.speed(value);
+  M2.speed(value);
+  M3.speed(value);
+  M4.speed(value);
 }
 
 void yaw(int value)
@@ -129,11 +140,11 @@ void pitch(int value)
     bvalue = value;
 
     // Front engines
-    setSpeed(M1, fvalue);
-    setSpeed(M3, fvalue);
+    M1.speed(fvalue);
+    M3.speed(fvalue);
     // Back engines
-    setSpeed(M2, bvalue);
-    setSpeed(M4, bvalue);
+    M2.speed(bvalue);
+    M4.speed(bvalue);
     
   }else if(value < 125){
     // Backward
@@ -141,11 +152,11 @@ void pitch(int value)
     bvalue = value;
 
     // Front engines
-    setSpeed(M1, fvalue);
-    setSpeed(M3, fvalue);
+    M1.speed(fvalue);
+    M3.speed(fvalue);
     // Back engines
-    setSpeed(M2, bvalue);
-    setSpeed(M4, bvalue);
+    M2.speed(bvalue);
+    M4.speed(bvalue);
   }else{
     // Zero out.
     // TODO??
@@ -154,6 +165,8 @@ void pitch(int value)
 
 void roll(int value)
 {
+
+  
   int lvalue = 125;
   int rvalue = 125;
 
@@ -162,12 +175,14 @@ void roll(int value)
     lvalue = value;
     rvalue = (125-(value-125));
 
+    lvalue = map(lvalue, 0, 250, 1000, 2000);
+    
     // Right engines
-    setSpeed(M1, rvalue);
-    setSpeed(M4, rvalue);
+    M1.speed(rvalue);
+    M4.speed(rvalue);
     // Left engines
-    setSpeed(M2, lvalue);
-    setSpeed(M3, lvalue);
+    M2.speed(lvalue);
+    M3.speed(lvalue);
     
   }else if(value < 125){
     // Left
@@ -175,11 +190,11 @@ void roll(int value)
     rvalue = (125+(125-value));
 
     // Right engines
-    setSpeed(M1, rvalue);
-    setSpeed(M4, rvalue);
+    M1.speed(rvalue);
+    M4.speed(rvalue);
     // Left engines
-    setSpeed(M2, lvalue);
-    setSpeed(M3, lvalue);
+    M2.speed(lvalue);
+    M3.speed(lvalue);
   }else{
     // Zero out.
     // TODO??
