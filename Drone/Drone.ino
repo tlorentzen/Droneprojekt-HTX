@@ -104,10 +104,7 @@ void loop()
     lastRecievedTransmission = currentMicros;
   }
 
-  // Check if we lost connection to controller.
-  if((currentMicros - lastRecievedTransmission) >= lastTrasmissionTimeout){
-      Serial.println("Connection lost...");
-  }
+  
 
   // Send feedback if nesecerry. 
   sendFeedback();
