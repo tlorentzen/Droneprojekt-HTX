@@ -1,4 +1,6 @@
 
+
+
 /**
  * The software is provided "as is", without any warranty of any kind.
  * Feel free to edit it if needed.
@@ -13,15 +15,19 @@
 #include <RF24_config.h>
 #include <RF24.h>
 #include <ESC.h>
+#include <MPU9250.h>
 // ------------------- Define some constants for convenience -----------------
+
+bool debug = false;
 
 struct instruction {
   byte throttle;
   byte yaw;
   byte pitch;
   byte roll;
-  byte AUX1;
-  byte AUX2;
+  float kp = 0;
+  double ki = 0;
+  float kd = 0;
 } data;
 
 struct drone_feedback {
@@ -29,11 +35,12 @@ struct drone_feedback {
   byte error = 0;
 } feedback;
 
-
+/*
 #define CHANNEL1 0
 #define CHANNEL2 1
 #define CHANNEL3 2
 #define CHANNEL4 3
+*/
 #define PI acos(-1) // 3.14.....
 
 #define YAW      0
@@ -75,11 +82,10 @@ float angle_roll_acc, angle_pitch_acc;
 // ----------------------- Variables for servo signal generation -------------
 unsigned long loop_timer;
 unsigned long now, difference;
-
 unsigned long pulse_length_esc1 = 1000,
-        pulse_length_esc2 = 1000,
-        pulse_length_esc3 = 1000,
-        pulse_length_esc4 = 1000;
+              pulse_length_esc2 = 1000,
+              pulse_length_esc3 = 1000,
+              pulse_length_esc4 = 1000;
 
 // ------------- Global variables used for PID automation --------------------
 float errors[3];                     // Measured errors (compared to instructions) : [Yaw, Pitch, Roll]
@@ -90,6 +96,7 @@ float measures[3]       = {0, 0, 0}; // Angular measures : [Yaw, Pitch, Roll]
 
 // Initialize RF24 object (NRF24L01+)
 RF24 radio(A0, 10);
+MPU9250 IMU(Wire,0x68);
 
 // Battery Voltage
 #define battery_voltage_pin A2
@@ -101,9 +108,9 @@ unsigned long feedbackDelay = 3000; // 3 seconds
 unsigned long lastTrasmissionTimeout = 1000; // 1 second
 
 ESC M1 (8, 1000, 2000, 500);
-ESC M2 (7, 1000, 2000, 500);
+ESC M2 (9, 1000, 2000, 500);
 ESC M3 (6, 1000, 2000, 500);
-ESC M4 (9, 1000, 2000, 500);
+ESC M4 (7, 1000, 2000, 500);
 
 int red_led = 5;
 int green_led = A1;
@@ -111,13 +118,19 @@ int green_led = A1;
 unsigned long previousTime = 0;
 unsigned long currentTime = 0;
 
-
+float KKp = 0;
+double KKi = 0;
+float KKd = 0;
 
 /**
  * Setup configuration
  */
 void setup() {
-    Serial.begin(9600);
+
+    if(debug){
+      Serial.begin(9600);
+    }
+  
     Wire.begin();
     TWBR = 24; // 400kHz I2C clock (200kHz if CPU is 8MHz)
 
@@ -126,8 +139,8 @@ void setup() {
 
     digitalWrite(red_led, HIGH);
     digitalWrite(green_led, HIGH);
-    
-    Serial.println("Initializing radio...");
+
+    writeDebugData("Initializing radio...");
     radio.begin();
     radio.setPALevel(RF24_PA_MIN);
     radio.setAutoAck(false);
@@ -136,11 +149,29 @@ void setup() {
     radio.openWritingPipe(pipeOut);
     radio.startListening();
     radio.printDetails();
-    Serial.println("Done!");
+    writeDebugData("Done!");
 
-    setupMpu6050Registers();
+    if (IMU.begin() < 0) {
+        writeDebugData("IMU initialization unsuccessful");
+        writeDebugData("Check IMU wiring or try cycling power");
+        while(1) {}
+    }else{
+      // setting the accelerometer full scale range to +/-8G 
+      IMU.setAccelRange(MPU9250::ACCEL_RANGE_8G);
+      // setting the gyroscope full scale range to +/-500 deg/s
+      IMU.setGyroRange(MPU9250::GYRO_RANGE_2000DPS);
+      // setting DLPF bandwidth to 20 Hz
+      IMU.setDlpfBandwidth(MPU9250::DLPF_BANDWIDTH_20HZ);
+      // setting SRD to 19 for a 50 Hz update rate
+      IMU.setSrd(19);
 
-    calibrateMpu9250();
+      calibrateMpu9250New();
+    }
+
+    //setupMpu6050Registers();
+
+    //calibrateMpu9250();
+    
     /*
     // Set pins 4 5 6 7 as outputs.
     DDRD |= B11110000;
@@ -158,7 +189,7 @@ void setup() {
     M3.arm();
     M4.arm();
     
-    delay(3000);
+    //delay(1000);
 
     digitalWrite(red_led, LOW);
     digitalWrite(green_led, HIGH);
@@ -170,19 +201,27 @@ void setup() {
  */
 void loop() {
 
+    previousTime = currentTime;
+    currentTime = millis();
+    
     // Recieve controller transmissions if any.
     if (radio.available())
     {
       radio.read(&data, sizeof(data));
       //Serial.println(data.throttle);
-      
-      
       lastRecievedTransmission = currentTime;
     }
   
     // 1. First, read angular values from MPU-6050
+    /*
     readSensor();
     convertRawValues();
+    */
+    readMPU();
+
+    writeDebugData("ROLL-messured: "+String(measures[ROLL]));
+    writeDebugData("PITCH-messured: "+String(measures[PITCH]));
+    writeDebugData("YAW-messured: "+String(measures[YAW]));
 
     //Serial.println(measures[YAW]);
 
@@ -191,7 +230,7 @@ void loop() {
     
     // 2. Then, translate received data into usable values
     getFlightInstruction();
-
+    instruction[YAW] = 0;
     
 
     // 3. Calculate errors comparing received instruction with measures
@@ -200,23 +239,94 @@ void loop() {
     // 4. Calculate motors speed with PID controller
     automation();
 
-    Serial.println("#### Controller INPUT ####");
-    Serial.println("Pitch: "+String(instruction[PITCH]));
-    Serial.println("Roll: "+String(instruction[ROLL]));
-    Serial.println("yaw: "+String(instruction[YAW]));
-    Serial.println("Throttle: "+String(instruction[THROTTLE]));
-    Serial.println();
+    writeDebugData("#### Controller INPUT ####");
+    writeDebugData("Pitch: "+String(instruction[PITCH]));
+    writeDebugData("Roll: "+String(instruction[ROLL]));
+    writeDebugData("yaw: "+String(instruction[YAW]));
+    writeDebugData("Throttle: "+String(instruction[THROTTLE]));
+    writeDebugData("");
+    
+    
     
     // 5. Apply motors speed
     applyMotorSpeed();
-    
-    
     
 
     //Serial.println(String(measures[ROLL])+" - "+String(measures[PITCH]));
     //Serial.println();
     sendFeedback();
-    delay(1000);
+    //delay(500);
+}
+
+void readMPU()
+{
+    IMU.readSensor();
+
+    acc_x = IMU.getAccelX_mss();                                 //Add the low and high byte to the acc_x variable
+    acc_y = IMU.getAccelY_mss();                                 //Add the low and high byte to the acc_y variable
+    acc_z = IMU.getAccelZ_mss();                                  //Add the low and high byte to the acc_z variable
+    temperature = IMU.getTemperature_C();                          
+    gyro_x = IMU.getGyroX_rads();                                 //Add the low and high byte to the gyro_x variable
+    gyro_y = IMU.getGyroY_rads();                                 //Add the low and high byte to the gyro_y variable
+    gyro_z = IMU.getGyroZ_rads();
+
+    float calcTime = ((currentTime-previousTime)/1000);
+    float incY = 0;
+    float incX = 0;
+    float gyroY = 0;
+    float gyroX = 0;
+    float xh = 0;
+    float yh = 0;
+    float var_compass = 0;
+  
+    //Beregning for  hældningsvinklen for  x- and y-aksen.
+    incY = atan(IMU.getAccelX_mss()/sqrt((IMU.getAccelY_mss()*IMU.getAccelY_mss())+(IMU.getAccelZ_mss()*IMU.getAccelZ_mss()))); 
+    incX= atan(IMU.getAccelY_mss()/sqrt((IMU.getAccelX_mss()*IMU.getAccelX_mss())+(IMU.getAccelZ_mss()*IMU.getAccelZ_mss())));
+  
+    //supplementary filter, hvor orientationen bliver finpudset med dataene fra gyroskopet
+    gyroY = incY + IMU.getGyroY_rads()*calcTime;
+    gyroX = incX + IMU.getGyroX_rads()*calcTime;
+  
+    xh = IMU.getMagX_uT()*cos(IMU.getAccelY_mss())+IMU.getMagY_uT()*sin(IMU.getAccelY_mss())-IMU.getMagZ_uT()*cos(IMU.getAccelX_mss())*sin(IMU.getAccelY_mss());
+    yh = IMU.getMagY_uT()*cos(IMU.getAccelX_mss())+IMU.getMagZ_uT()*sin(IMU.getAccelX_mss());
+  
+    var_compass = atan2((double)yh, (double)xh)*(180/PI)-90;
+    if (var_compass>0){
+      var_compass = var_compass - 360;
+    }
+    var_compass = 360+var_compass;
+  
+    gyroX = gyroX*180/PI;
+    gyroY = gyroY*180/PI;
+  
+    //Serial.println(String(gyroX) + "\t" + String(gyroY)  + "\t" + String(var_compass));
+
+    measures[ROLL]  = gyroX * 0.9 + angle_pitch * 0.1;   //Take 90% of the output pitch value and add 10% of the raw pitch value
+    measures[PITCH] = gyroY * 0.9 + angle_roll * 0.1; 
+
+    /*
+    measures[ROLL] = gyroX;
+    measures[PITCH] = gyroY;
+    */
+    measures[YAW] = var_compass;
+    /*
+    Serial.println("ROLL-messured: "+String(measures[ROLL]));
+    Serial.println("PITCH-messured: "+String(measures[PITCH]));
+    Serial.println("YAW-messured: "+String(measures[YAW]));
+    */
+}
+
+void calibrateMpu9250New(){
+    for (int cal_int = 0; cal_int < 1000; cal_int++) {                  //Run this code 2000 times
+        readMPU();                                              //Read the raw acc and gyro data from the MPU-6050
+        gyro_x_cal += gyro_x;                                              //Add the gyro x-axis offset to the gyro_x_cal variable
+        gyro_y_cal += gyro_y;                                              //Add the gyro y-axis offset to the gyro_y_cal variable
+        gyro_z_cal += gyro_z;                                              //Add the gyro z-axis offset to the gyro_z_cal variable
+        delay(3);                                                          //Delay 3us to simulate the 250Hz program loop
+    }
+    gyro_x_cal /= 1000;                                                  //Divide the gyro_x_cal variable by 2000 to get the avarage offset
+    gyro_y_cal /= 1000;                                                  //Divide the gyro_y_cal variable by 2000 to get the avarage offset
+    gyro_z_cal /= 1000;
 }
 
 /**
@@ -244,29 +354,29 @@ void applyMotorSpeed() {
     now = micros();
     difference = now - loop_timer;
 
-    Serial.println("#### ESC OUTPUT ####");
+    //Serial.println("#### ESC OUTPUT ####");
 
-    if (difference >= pulse_length_esc1){
-      Serial.println("ESC 1: "+String(pulse_length_esc1));
+    //if (difference >= pulse_length_esc1){
+      writeDebugData("ESC 1: "+String(pulse_length_esc1));
       M1.speed(pulse_length_esc1);
-    }
+    //}
 
-    if (difference >= pulse_length_esc2){
-      Serial.println("ESC 2: "+String(pulse_length_esc2));
+    //if (difference >= pulse_length_esc2){
+      writeDebugData("ESC 2: "+String(pulse_length_esc2));
       M2.speed(pulse_length_esc2);
-    }
+    //}
 
-    if (difference >= pulse_length_esc3){
-      Serial.println("ESC 3: "+String(pulse_length_esc3));
+    //if (difference >= pulse_length_esc3){
+      writeDebugData("ESC 3: "+String(pulse_length_esc3));
       M3.speed(pulse_length_esc3);
-    }
+    //}
 
-    if (difference >= pulse_length_esc4){
-      Serial.println("ESC 4: "+String(pulse_length_esc4));
+    //if (difference >= pulse_length_esc4){
+      writeDebugData("ESC 4: "+String(pulse_length_esc4));
       M4.speed(pulse_length_esc4);
-    }
+    //}
 
-    Serial.println();
+    writeDebugData("");
         /*
         if (difference >= pulse_length_esc1) PORTD &= B11101111; // Pin 4
         if (difference >= pulse_length_esc2) PORTD &= B11011111; // pin 5
@@ -324,8 +434,8 @@ void convertRawValues() {
     angle_roll_acc = asin((float)acc_x/acc_total_vector)* -57.296;       //Calculate the roll angle
 
     //Place the MPU-6050 spirit level and note the values in the following two lines for calibration
-    angle_pitch_acc -= 0.42;                                              //Accelerometer calibration value for pitch
-    angle_roll_acc -= -2.51;                                               //Accelerometer calibration value for roll
+    angle_pitch_acc -= 0.0;                                              //Accelerometer calibration value for pitch
+    angle_roll_acc -= -0.0;                                               //Accelerometer calibration value for roll
 
     if (set_gyro_angles) {                                                 //If the IMU is already started
         angle_pitch = angle_pitch * 0.9996 + angle_pitch_acc * 0.0004;     //Correct the drift of the gyro pitch angle with the accelerometer pitch angle
@@ -340,6 +450,10 @@ void convertRawValues() {
     measures[ROLL]  = measures[ROLL] * 0.9 + angle_pitch * 0.1;   //Take 90% of the output pitch value and add 10% of the raw pitch value
     measures[PITCH] = measures[PITCH] * 0.9 + angle_roll * 0.1;      //Take 90% of the output roll value and add 10% of the raw roll value
     measures[YAW]   = gyro_z / SSF_GYRO;
+
+    Serial.println("ROLL-messured: "+String(measures[ROLL]));
+    Serial.println("PITCH-messured: "+String(measures[PITCH]));
+    Serial.println("YAW-messured: "+String(measures[YAW]));
 }
 
 /**
@@ -360,9 +474,10 @@ void convertRawValues() {
  * @return void
  */
 void automation() {
-    float Kp[3]       = {10, 10, 10}; // P coefficients in that order : Yaw, Pitch, Roll //ku = 0.21
-    float Ki[3]       = {0.0, 0, 0};  // I coefficients in that order : Yaw, Pitch, Roll
-    float Kd[3]       = {0, 0, 0};    // D coefficients in that order : Yaw, Pitch, Roll
+  
+    float  Kp[3]       = {0, data.kp, data.kp}; // P coefficients in that order : Yaw, Pitch, Roll //ku = 0.21
+    double Ki[3]       = {0, data.ki, data.ki};  // I coefficients in that order : Yaw, Pitch, Roll
+    float  Kd[3]       = {0, data.kd, data.kd};    // D coefficients in that order : Yaw, Pitch, Roll
     float deltaErr[3] = {0, 0, 0};    // Error deltas in that order :  Yaw, Pitch, Roll
     float yaw         = 0;
     float pitch       = 0;
@@ -376,6 +491,17 @@ void automation() {
 
     // Do not calculate anything if throttle is 0
     if (instruction[THROTTLE] >= 1012) {
+
+        writeDebugData("YAW: Error: "+String(errors[YAW]));
+        writeDebugData("PITCH Error: "+String(errors[PITCH]));
+        writeDebugData("ROLL error: "+String(errors[ROLL]));
+
+        errors[YAW] = 0;
+        /*
+        errors[PITCH] = 0;
+        errors[ROLL] = 0;
+        */
+      
         // Calculate sum of errors : Integral coefficients
         error_sum[YAW] += errors[YAW];
         error_sum[PITCH] += errors[PITCH];
@@ -413,7 +539,7 @@ void automation() {
         pulse_length_esc2 += roll;
         pulse_length_esc4 += roll;
     }
-/*
+
     // Maximum value
     if (pulse_length_esc1 > 2000) pulse_length_esc1 = 2000;
     if (pulse_length_esc2 > 2000) pulse_length_esc2 = 2000;
@@ -425,6 +551,7 @@ void automation() {
     if (pulse_length_esc2 < 1000) pulse_length_esc2 = 1000;
     if (pulse_length_esc3 < 1000) pulse_length_esc3 = 1000;
     if (pulse_length_esc4 < 1000) pulse_length_esc4 = 1000;
+    
 }
 
 
@@ -469,12 +596,14 @@ void getFlightInstruction() {
  *
  * @return void
  */
+ /*
 void configureChannelMapping() {
     mode_mapping[YAW]      = CHANNEL4;
     mode_mapping[PITCH]    = CHANNEL2;
     mode_mapping[ROLL]     = CHANNEL1;
     mode_mapping[THROTTLE] = CHANNEL3;
 }
+*/
 
 /**
  * Configure gyro and accelerometer precision as following:
@@ -507,8 +636,7 @@ void setupMpu6050Registers() {
  *
  * @return void
  */
-void calibrateMpu9250()
-{
+void calibrateMpu9250(){
     for (int cal_int = 0; cal_int < 2000; cal_int++) {                  //Run this code 2000 times
         readSensor();                                              //Read the raw acc and gyro data from the MPU-6050
         gyro_x_cal += gyro_x;                                              //Add the gyro x-axis offset to the gyro_x_cal variable
@@ -583,13 +711,13 @@ ISR(PCINT0_vect) {
 */
 void sendFeedback(){
   if((currentTime-lastFeedbackTransmission) >= feedbackDelay){
-
+ 
     //TODO: Prepare date for transmission.
     feedback.battery = read_battery_voltage();
 
     radio.stopListening();
     //Serial.println(currentMicros);
-    Serial.println("Sending feedback...");
+    writeDebugData("Sending feedback...");
     radio.write(&feedback, sizeof(feedback));
     lastFeedbackTransmission = currentTime;
     radio.startListening();
@@ -600,3 +728,11 @@ float read_battery_voltage()
 {
   return (analogRead(battery_voltage_pin)/54.16);
 }
+
+void writeDebugData(String text){
+  if(debug){
+      Serial.println(text);
+  }
+}
+
+

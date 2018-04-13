@@ -17,12 +17,13 @@ struct instruction {
   byte yaw;
   byte pitch = 127;
   byte roll = 127;
-  byte AUX1;
-  byte AUX2;
+  float kp = 0;
+  double ki = 0;
+  float kd = 0;
 };
 
 struct drone_feedback {
-  byte battery;
+  float battery;
   byte error = 0;
 };
 
@@ -60,18 +61,34 @@ void setup() {
 
 void loop() {
 
+  if (Serial.available()) {
+      String input1 = Serial.readString();
+      String command1 = getValue(input1,'=',0);
+      double number1 = getValue(input1,'=',1).toDouble();
+
+      if(command1 == "p"){
+        data.kp = number1;
+      }else if(command1 == "i"){
+        data.ki = number1;
+      }else if(command1 == "d"){
+        data.kd = number1;
+      }
+      
+      Serial.println(command1+"="+String(number1));
+  }
+
   //data.throttle++;
 
   if (radio.available())
   {
     radio.read(&feedback, sizeof(feedback));
-    Serial.println("Battery: "+String(feedback.battery)+" %");
+    Serial.println("Battery: "+String(feedback.battery)+" V");
   }
 
   int value = analogRead(speeder);
   value = map(value, 0, 1023, 0, 250);
   data.throttle = value;
-  Serial.println(value);
+  //Serial.println(value);
 
   radio.stopListening();
   radio.write(&data, sizeof(data));
@@ -94,4 +111,21 @@ void loop() {
   
   //delay(500);
   
+}
+
+String getValue(String data, char separator, int index)
+{
+  int found = 0;
+  int strIndex[] = {0, -1};
+  int maxIndex = data.length()-1;
+
+  for(int i=0; i<=maxIndex && found<=index; i++){
+    if(data.charAt(i)==separator || i==maxIndex){
+        found++;
+        strIndex[0] = strIndex[1]+1;
+        strIndex[1] = (i == maxIndex) ? i+1 : i;
+    }
+  }
+
+  return found>index ? data.substring(strIndex[0], strIndex[1]) : "";
 }
