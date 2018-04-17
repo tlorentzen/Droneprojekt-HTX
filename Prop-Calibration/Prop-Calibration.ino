@@ -31,6 +31,10 @@ float angle_roll_acc, angle_pitch_acc;
 unsigned long previousTime = 0;
 unsigned long currentTime = 0;
 
+float cx[5];
+float cy[5];
+float cz[5];
+
 void setup() {
     // put your setup code here, to run once:
     Serial.begin(9600);
@@ -176,6 +180,35 @@ void readMPU()
     y = gyroY;
     z = var_compass;
 
+    memcpy(cx, &cx[1], sizeof(cx) - sizeof(float));
+    cx[5] = x;
+
+    memcpy(cy, &cy[1], sizeof(cy) - sizeof(float));
+    cy[5] = y;
+
+    memcpy(cz, &cz[1], sizeof(cz) - sizeof(float));
+    cz[5] = z;
+
+    float xcc = 0.0;
+    float ycc = 0.0;
+    float zcc = 0.0;
+    
+    for (int i=0; i <= sizeof(cx); i++){
+      xcc += cx[i];
+    }
+
+    for (int i=0; i <= sizeof(cy); i++){
+      ycc += cy[i];
+    }
+
+    for (int i=0; i <= sizeof(cz); i++){
+      zcc += cz[i];
+    }
+
+    x = (xcc/sizeof(cx));
+    y = (ycc/sizeof(cy));
+    z = (zcc/sizeof(cz));
+    
     /*
     measures[ROLL]  = gyroX * 0.9 + angle_pitch * 0.1;   //Take 90% of the output pitch value and add 10% of the raw pitch value
     measures[PITCH] = gyroY * 0.9 + angle_roll * 0.1; 
