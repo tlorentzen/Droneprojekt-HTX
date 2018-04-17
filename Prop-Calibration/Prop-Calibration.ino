@@ -15,6 +15,10 @@ ESC M4 (7, 1000, 2000, 500);
 String command = "";
 int    value   = 0;
 
+float ax = 0.0;
+float ay = 0.0;
+float az = 0.0;
+
 void setup() {
     // put your setup code here, to run once:
     Serial.begin(9600);
@@ -24,7 +28,7 @@ void setup() {
     if (IMU.begin() < 0) {
         Serial.println("IMU initialization unsuccessful");
         Serial.println("Check IMU wiring or try cycling power");
-        while(1) {}
+        //while(1) {}
     }else{
         // setting the accelerometer full scale range to +/-8G 
         IMU.setAccelRange(MPU9250::ACCEL_RANGE_8G);
@@ -45,6 +49,8 @@ void setup() {
 
 void loop() {
 
+    IMU.readSensor();
+    
     // Read serial inputs
     if (Serial.available()) {
         String input = Serial.readString();
@@ -68,31 +74,41 @@ void loop() {
     }
 
     // Read accelerometer data.
-    float ax = IMU.getAccelX_mss();
-    float ay = IMU.getAccelY_mss();
-    float az = IMU.getAccelZ_mss();
+    ax = IMU.getAccelX_mss();
+    ay = IMU.getAccelY_mss();
+    az = IMU.getAccelZ_mss();
 
-    
+    // Read gyroscope data
+    float gx = IMU.getGyroX_rads();
+    float gy = IMU.getGyroY_rads();
+    float gz = IMU.getGyroZ_rads(); 
 
     // Set motor values
     if(command == "m1"){
         M1.speed(value);
+        M2.speed(1000);
+        M3.speed(1000);
+        M4.speed(1000);
     }else if(command == "m2"){
+        M1.speed(1000);
         M2.speed(value);
+        M3.speed(1000);
+        M4.speed(1000);
     }else if(command == "m3"){
+        M1.speed(1000);
+        M2.speed(1000);
         M3.speed(value);
+        M4.speed(1000);
     }else if(command == "m4"){
+        M1.speed(1000);
+        M2.speed(1000);
+        M3.speed(1000);
         M4.speed(value);
     }else if(command == "all"){
         M1.speed(value);
         M2.speed(value);
         M3.speed(value);
         M4.speed(value);
-    }else{
-        M1.speed(1000);
-        M2.speed(1000);
-        M3.speed(1000);
-        M4.speed(1000);
     }
     
     // Write vibrations to serial (Serial plotter)
