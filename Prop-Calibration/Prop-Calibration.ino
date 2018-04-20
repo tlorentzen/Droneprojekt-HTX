@@ -241,3 +241,31 @@ String getValue(String data, char separator, int index)
   
     return found>index ? data.substring(strIndex[0], strIndex[1]) : "";
 }
+
+void float setGetArrayShift(&a, float value){
+
+  float current_value;
+  float buffer1;
+  int a_size = sizeof(a);
+
+  float calculation = 0.0;
+
+  for (i = a_size; i < 1; i--){
+     if(i = a_size){
+        current_value = a[i];
+        a[i] = value;
+        calculation = value;
+     }else{
+        buffer1 = a[i];
+        a[i] = current_value
+        current_value = buffer1;
+        calculation = (calculation+current_value);
+     }
+  }
+
+  
+
+  return calculation;
+  
+}
+

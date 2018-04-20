@@ -1,5 +1,4 @@
-
-
+#include <VL53L0X.h>
 
 /**
  * The software is provided "as is", without any warranty of any kind.
@@ -19,6 +18,8 @@
 // ------------------- Define some constants for convenience -----------------
 
 bool debug = false;
+
+VL53L0X lof;
 
 struct instruction {
   byte throttle;
@@ -79,6 +80,13 @@ float angle_pitch, angle_roll;
 int angle_pitch_buffer, angle_roll_buffer;
 boolean set_gyro_angles;
 float angle_roll_acc, angle_pitch_acc;
+
+float cx[30] = {0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0};
+float cy[30] = {0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0};
+float cz[30] = {0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0};
+float xAvg = 0.0;
+float yAvg = 0.0;
+float zAvg = 0.0;
 // ----------------------- Variables for servo signal generation -------------
 unsigned long loop_timer;
 unsigned long now, difference;
@@ -122,15 +130,20 @@ float KKp = 0;
 double KKi = 0;
 float KKd = 0;
 
+int i = 0;
+
 /**
  * Setup configuration
  */
 void setup() {
 
+
+  
     if(debug){
       Serial.begin(9600);
     }
-  
+    
+    
     Wire.begin();
     TWBR = 24; // 400kHz I2C clock (200kHz if CPU is 8MHz)
 
@@ -200,7 +213,7 @@ void setup() {
  * Main program loop
  */
 void loop() {
-
+    
     previousTime = currentTime;
     currentTime = millis();
     
@@ -301,14 +314,34 @@ void readMPU()
   
     //Serial.println(String(gyroX) + "\t" + String(gyroY)  + "\t" + String(var_compass));
 
-    measures[ROLL]  = gyroX * 0.9 + angle_pitch * 0.1;   //Take 90% of the output pitch value and add 10% of the raw pitch value
-    measures[PITCH] = gyroY * 0.9 + angle_roll * 0.1; 
+    for (i=0; i<9; i++){
+         cx[i] = cx[i+1];
+         cy[i] = cy[i+1];
+         cz[i] = cz[i+1];
+    }
+
+    cx[9] = gyroX;
+    cy[9] = gyroY;
+    cz[9] = var_compass;
+
+    xAvg = 0.0;
+    yAvg = 0.0;
+    zAvg = 0.0;
+    
+    for (i=0; i<9; i++){
+         xAvg = (xAvg+cx[i]);
+         yAvg = (yAvg+cy[i]);
+         zAvg = (zAvg+cz[i]);
+    }
+
+    measures[ROLL]  = (xAvg/10);   //Take 90% of the output pitch value and add 10% of the raw pitch value
+    measures[PITCH] = (yAvg/10); 
 
     /*
     measures[ROLL] = gyroX;
     measures[PITCH] = gyroY;
     */
-    measures[YAW] = var_compass;
+    measures[YAW] = (zAvg/10);
     /*
     Serial.println("ROLL-messured: "+String(measures[ROLL]));
     Serial.println("PITCH-messured: "+String(measures[PITCH]));
@@ -343,7 +376,7 @@ void applyMotorSpeed() {
 
    //Serial.println("Applying power!");
  
-    //while ((now = micros()) - loop_timer < 4000);
+    //while ((now = micros()) - loop_timer < 4000){
 
     loop_timer = now;
      /*
@@ -376,7 +409,7 @@ void applyMotorSpeed() {
       M4.speed(pulse_length_esc4);
     //}
 
-    writeDebugData("");
+    
         /*
         if (difference >= pulse_length_esc1) PORTD &= B11101111; // Pin 4
         if (difference >= pulse_length_esc2) PORTD &= B11011111; // pin 5
