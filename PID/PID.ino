@@ -112,7 +112,7 @@ const uint64_t pipeIn  = 0xE8E8F0F0E1LL;
 const uint64_t pipeOut = 0xE7E8F0F0E1LL;
 unsigned long lastRecievedTransmission = 0;
 unsigned long lastFeedbackTransmission = 0;
-unsigned long feedbackDelay = 3000; // 3 seconds
+unsigned long feedbackDelay = 1100; // 1 seconds
 unsigned long lastTrasmissionTimeout = 1000; // 1 second
 
 ESC M1 (8, 1000, 2000, 500);
@@ -137,15 +137,18 @@ int i = 0;
  */
 void setup() {
 
-
   
-    if(debug){
+    //if(debug){
       Serial.begin(9600);
-    }
+      Serial.flush();
+    //}
+
+    Serial.println("Test");
+    Serial.println("Test 2");
     
     
     Wire.begin();
-    TWBR = 24; // 400kHz I2C clock (200kHz if CPU is 8MHz)
+    //TWBR = 24; // 400kHz I2C clock (200kHz if CPU is 8MHz)
 
     pinMode(red_led, OUTPUT);
     pinMode(green_led, OUTPUT);
@@ -158,10 +161,11 @@ void setup() {
     radio.setPALevel(RF24_PA_MIN);
     radio.setAutoAck(false);
     radio.setDataRate(RF24_250KBPS);
+    radio.setChannel(108);
     radio.openReadingPipe(1, pipeIn);
     radio.openWritingPipe(pipeOut);
     radio.startListening();
-    radio.printDetails();
+    //radio.printDetails();
     writeDebugData("Done!");
 
     if (IMU.begin() < 0) {
@@ -216,7 +220,9 @@ void loop() {
     
     previousTime = currentTime;
     currentTime = millis();
-    
+
+        int start_mil = millis();
+    //Serial.println(String(start_mil));
     // Recieve controller transmissions if any.
     if (radio.available())
     {
@@ -224,7 +230,8 @@ void loop() {
       //Serial.println(data.throttle);
       lastRecievedTransmission = currentTime;
     }
-  
+    
+    
     // 1. First, read angular values from MPU-6050
     /*
     readSensor();
@@ -252,13 +259,14 @@ void loop() {
     // 4. Calculate motors speed with PID controller
     automation();
 
+    /*
     writeDebugData("#### Controller INPUT ####");
     writeDebugData("Pitch: "+String(instruction[PITCH]));
     writeDebugData("Roll: "+String(instruction[ROLL]));
     writeDebugData("yaw: "+String(instruction[YAW]));
     writeDebugData("Throttle: "+String(instruction[THROTTLE]));
     writeDebugData("");
-    
+    */
     
     
     // 5. Apply motors speed
@@ -269,10 +277,16 @@ void loop() {
     //Serial.println();
     sendFeedback();
     //delay(500);
+
+    int end_mil = millis();
+    //Serial.println(String(end_mil));
+    Serial.println(String(end_mil-start_mil));
 }
 
 void readMPU()
 {
+
+  
     IMU.readSensor();
 
     acc_x = IMU.getAccelX_mss();                                 //Add the low and high byte to the acc_x variable
@@ -347,6 +361,9 @@ void readMPU()
     Serial.println("PITCH-messured: "+String(measures[PITCH]));
     Serial.println("YAW-messured: "+String(measures[YAW]));
     */
+
+    
+    //Serial.println();
 }
 
 void calibrateMpu9250New(){
@@ -374,7 +391,7 @@ void calibrateMpu9250New(){
  */
 void applyMotorSpeed() {
 
-   //Serial.println("Applying power!");
+
  
     //while ((now = micros()) - loop_timer < 4000){
 
@@ -417,76 +434,6 @@ void applyMotorSpeed() {
         if (difference >= pulse_length_esc4) PORTD &= B01111111; // pin 7
         */
     //}
-}
-
-/**
- * Request raw values from MPU6050.
- * 
- * @return void
- */
-void readSensor() {
-    Wire.beginTransmission(0x68);                                        //Start communicating with the MPU-6050
-    Wire.write(0x3B);                                                    //Send the requested starting register
-    Wire.endTransmission();                                              //End the transmission
-    Wire.requestFrom(0x68,14);                                           //Request 14 bytes from the MPU-6050
-    while(Wire.available() < 14);                                        //Wait until all the bytes are received
-    acc_x = Wire.read()<<8|Wire.read();                                  //Add the low and high byte to the acc_x variable
-    acc_y = Wire.read()<<8|Wire.read();                                  //Add the low and high byte to the acc_y variable
-    acc_z = Wire.read()<<8|Wire.read();                                  //Add the low and high byte to the acc_z variable
-    temperature = Wire.read()<<8|Wire.read();                            //Add the low and high byte to the temperature variable
-    gyro_x = Wire.read()<<8|Wire.read();                                 //Add the low and high byte to the gyro_x variable
-    gyro_y = Wire.read()<<8|Wire.read();                                 //Add the low and high byte to the gyro_y variable
-    gyro_z = Wire.read()<<8|Wire.read();                                 //Add the low and high byte to the gyro_z variable
-}
-
-/**
- * Convert RAW values from gyro and accelerometer to usable values.
- * Pitch and Roll are converted in degrees
- * Yaw is convert in degree/sec (an angular rate).
- *
- * @return void
- */
-void convertRawValues() {
-    gyro_x -= gyro_x_cal;                                                //Subtract the offset calibration value from the raw gyro_x value
-    gyro_y -= gyro_y_cal;                                                //Subtract the offset calibration value from the raw gyro_y value
-    gyro_z -= gyro_z_cal;                                                //Subtract the offset calibration value from the raw gyro_z value
-
-    //Gyro angle calculations
-    //0.0000611 = 1 / (250Hz / 65.5)
-    angle_pitch += gyro_x * 0.0000611;                                   //Calculate the traveled pitch angle and add this to the angle_pitch variable
-    angle_roll += gyro_y * 0.0000611;                                    //Calculate the traveled roll angle and add this to the angle_roll variable
-
-    //0.000001066 = 0.0000611 * (3.142(PI) / 180degr) The Arduino sin function is in radians
-    angle_pitch += angle_roll * sin(gyro_z * 0.000001066);               //If the IMU has yawed transfer the roll angle to the pitch angel
-    angle_roll -= angle_pitch * sin(gyro_z * 0.000001066);               //If the IMU has yawed transfer the pitch angle to the roll angel
-
-    //Accelerometer angle calculations
-    acc_total_vector = sqrt((acc_x*acc_x)+(acc_y*acc_y)+(acc_z*acc_z));  //Calculate the total accelerometer vector
-    //57.296 = 1 / (3.142 / 180) The Arduino asin function is in radians
-    angle_pitch_acc = asin((float)acc_y/acc_total_vector)* 57.296;       //Calculate the pitch angle
-    angle_roll_acc = asin((float)acc_x/acc_total_vector)* -57.296;       //Calculate the roll angle
-
-    //Place the MPU-6050 spirit level and note the values in the following two lines for calibration
-    angle_pitch_acc -= 0.0;                                              //Accelerometer calibration value for pitch
-    angle_roll_acc -= -0.0;                                               //Accelerometer calibration value for roll
-
-    if (set_gyro_angles) {                                                 //If the IMU is already started
-        angle_pitch = angle_pitch * 0.9996 + angle_pitch_acc * 0.0004;     //Correct the drift of the gyro pitch angle with the accelerometer pitch angle
-        angle_roll = angle_roll * 0.9996 + angle_roll_acc * 0.0004;        //Correct the drift of the gyro roll angle with the accelerometer roll angle
-    } else {                                                                //At first start
-        angle_pitch = angle_pitch_acc;                                     //Set the gyro pitch angle equal to the accelerometer pitch angle
-        angle_roll = angle_roll_acc;                                       //Set the gyro roll angle equal to the accelerometer roll angle
-        set_gyro_angles = true;                                            //Set the IMU started flag
-    }
-
-    //To dampen the pitch and roll angles a complementary filter is used
-    measures[ROLL]  = measures[ROLL] * 0.9 + angle_pitch * 0.1;   //Take 90% of the output pitch value and add 10% of the raw pitch value
-    measures[PITCH] = measures[PITCH] * 0.9 + angle_roll * 0.1;      //Take 90% of the output roll value and add 10% of the raw roll value
-    measures[YAW]   = gyro_z / SSF_GYRO;
-
-    Serial.println("ROLL-messured: "+String(measures[ROLL]));
-    Serial.println("PITCH-messured: "+String(measures[PITCH]));
-    Serial.println("YAW-messured: "+String(measures[YAW]));
 }
 
 /**
@@ -610,13 +557,6 @@ void calculateErrors() {
  * @return void
  */
 void getFlightInstruction() {
-    /*
-    instruction[YAW]      = map(pulse_length[mode_mapping[YAW]], 1000, 2000, -180, 180);
-    instruction[PITCH]    = map(pulse_length[mode_mapping[PITCH]], 1000, 2000, -33, 33);
-    instruction[ROLL]     = map(pulse_length[mode_mapping[ROLL]], 1000, 2000, -33, 33);
-    instruction[THROTTLE] = pulse_length[mode_mapping[THROTTLE]];
-    */
-
     instruction[YAW]      = map(data.yaw, 0, 250, -180, 180);
     instruction[PITCH]    = map(data.pitch, 0, 250, -33, 33);
     instruction[ROLL]     = map(data.roll, 0, 250, -33, 33);
@@ -637,50 +577,6 @@ void configureChannelMapping() {
     mode_mapping[THROTTLE] = CHANNEL3;
 }
 */
-
-/**
- * Configure gyro and accelerometer precision as following:
- *  - accelerometer: +/-8g
- *  - gyro: 500dps full scale
- *
- * @return void
- */
-void setupMpu6050Registers() {
-    //Activate the MPU-6050
-    Wire.beginTransmission(0x68);             //Start communicating with the MPU-6050
-    Wire.write(0x6B);                         //Send the requested starting register
-    Wire.write(0x00);                         //Set the requested starting register
-    Wire.endTransmission();                   //End the transmission
-    //Configure the accelerometer (+/-8g)
-    Wire.beginTransmission(0x68);             //Start communicating with the MPU-6050
-    Wire.write(0x1C);                         //Send the requested starting register
-    Wire.write(0x10);                         //Set the requested starting register
-    Wire.endTransmission();                   //End the transmission
-    //Configure the gyro (500dps full scale)
-    Wire.beginTransmission(0x68);             //Start communicating with the MPU-6050
-    Wire.write(0x1B);                         //Send the requested starting register
-    Wire.write(0x08);                         //Set the requested starting register
-    Wire.endTransmission();                   //End the transmission
-}
-
-/**
- * Calibrate MPU6050.
- * During this step, the multicopter needs to be static and on a horizontal surface.
- *
- * @return void
- */
-void calibrateMpu9250(){
-    for (int cal_int = 0; cal_int < 2000; cal_int++) {                  //Run this code 2000 times
-        readSensor();                                              //Read the raw acc and gyro data from the MPU-6050
-        gyro_x_cal += gyro_x;                                              //Add the gyro x-axis offset to the gyro_x_cal variable
-        gyro_y_cal += gyro_y;                                              //Add the gyro y-axis offset to the gyro_y_cal variable
-        gyro_z_cal += gyro_z;                                              //Add the gyro z-axis offset to the gyro_z_cal variable
-        delay(3);                                                          //Delay 3us to simulate the 250Hz program loop
-    }
-    gyro_x_cal /= 2000;                                                  //Divide the gyro_x_cal variable by 2000 to get the avarage offset
-    gyro_y_cal /= 2000;                                                  //Divide the gyro_y_cal variable by 2000 to get the avarage offset
-    gyro_z_cal /= 2000;
-}
 
 /**
  * This Interrupt Sub Routine is called each time input 8, 9, 10 or 11 changed state.
@@ -743,29 +639,27 @@ ISR(PCINT0_vect) {
 }
 */
 void sendFeedback(){
-  if((currentTime-lastFeedbackTransmission) >= feedbackDelay){
- 
-    //TODO: Prepare date for transmission.
-    feedback.battery = read_battery_voltage();
-
-    radio.stopListening();
-    //Serial.println(currentMicros);
-    writeDebugData("Sending feedback...");
-    radio.write(&feedback, sizeof(feedback));
-    lastFeedbackTransmission = currentTime;
-    radio.startListening();
-  }
+    if((currentTime-lastFeedbackTransmission) > feedbackDelay){
+        //TODO: Prepare date for transmission.
+        feedback.battery = read_battery_voltage();
+        radio.stopListening();
+        //Serial.println(currentMicros);
+        writeDebugData("Sending feedback...");
+        radio.write(&feedback, sizeof(feedback));
+        lastFeedbackTransmission = currentTime;
+        radio.startListening();
+    }
 }
 
 float read_battery_voltage()
 {
-  return (analogRead(battery_voltage_pin)/54.16);
+    return (analogRead(battery_voltage_pin)/53.5);
 }
 
 void writeDebugData(String text){
-  if(debug){
-      Serial.println(text);
-  }
+    if(debug){
+        Serial.println(text);
+    }
 }
 
 

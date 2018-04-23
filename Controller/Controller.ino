@@ -6,18 +6,21 @@
 #include <RF24_config.h>
 #include <RF24.h>
 
-//RF24 radio(9, 10);
-RF24 radio(7, 8);
+RF24 radio(9, 10);
+//RF24 radio(7, 8);
 LiquidCrystal_I2C lcd(0x27, 16, 2);
 
 // Unique transmitting pipe ids
 const uint64_t pipeOut = 0xE8E8F0F0E1LL;
 const uint64_t pipeIn  = 0xE7E8F0F0E1LL;
 
-unsigned long displayUpdaterate = 500;
 unsigned long previousTime = 0;
 unsigned long currentTime = 0;
+unsigned long displayUpdaterate = 500;
 unsigned long displayLastUpdated = 0;
+unsigned long lastFeedbackResponse = 0;
+unsigned int feedbackResponseTimeout = 2500;
+bool throttleLocked = false;
 
 struct instruction {
     byte throttle = 0;
@@ -48,6 +51,9 @@ drone_feedback feedback;
 #define INPUT_ROLL A2
 #define INPUT_PITCH A3
 
+char displayLine1[16];
+char displayLine2[16];
+
 void setup() {
     Wire.begin();
     
@@ -75,10 +81,10 @@ void setup() {
     //10100101
     
     radio.begin();
-    radio.setRetries(2, 2);
     radio.setPALevel(RF24_PA_LOW);
     radio.setAutoAck(false);
     radio.setDataRate(RF24_250KBPS);
+    radio.setChannel(108);
     radio.openWritingPipe(pipeOut);
     radio.openReadingPipe(1, pipeIn);
     radio.startListening();
@@ -113,17 +119,13 @@ void setup() {
     lcd.print("Ready!");
     delay(1000);
     lcd.clear();
-
-    lcd.print("Battery: 0.00v");
-    lcd.setCursor(0,1);
-    lcd.print("Throttle: 0 %");
 }
 
 void loop() {
 
     previousTime = currentTime;
     currentTime = millis();
-
+    /*
     if (Serial.available()) {
         String input1   = Serial.readString();
         String command1 = getValue(input1,'=',0);
@@ -139,6 +141,7 @@ void loop() {
         
         Serial.println(command1+"="+String(number1));
     }
+    */
 
     readControllerValues();
     
@@ -152,8 +155,7 @@ void loop() {
     */
   
     sendInstructions();
-
-    writeDisply();
+    
 }
 
 String getValue(String data, char separator, int index)
@@ -175,29 +177,49 @@ String getValue(String data, char separator, int index)
 
 void readControllerValues()
 { 
-    data.yaw      = map(analogRead(INPUT_YAW), 0, 1023, 0, 250);
-    data.roll     = map(analogRead(INPUT_ROLL), 0, 1023, 0, 250);
-    data.pitch    = map(analogRead(INPUT_PITCH), 0, 1023, 0, 250);
-    data.throttle = map(analogRead(INPUT_THROTTLE), 0, 1023, 0, 250);
+    data.yaw   = map(analogRead(INPUT_YAW), 0, 1023, 0, 250);
+    data.roll  = map(analogRead(INPUT_ROLL), 0, 1023, 0, 250);
+    data.pitch = map(analogRead(INPUT_PITCH), 0, 1023, 0, 250);
 
-    /*
-    int throttle = map(analogRead(INPUT_THROTTLE), 0, 1023, -10, 10);
+    if(data.yaw < 130 && data.yaw > 120){
+        data.yaw = 125;
+    }
 
-    if(throttle > 2 || throttle < -2){
-        int throttle_out = ((int)data.throttle+throttle);
+    if(data.roll < 130 && data.roll > 120){
+        data.roll = 125;
+    }
 
-        if(throttle_out > 250){
-            throttle_out = 250;
-        }else if(throttle_out < 0){
-            throttle_out = 0;
+    if(data.pitch < 130 && data.pitch > 120){
+        data.pitch = 125;
+    }
+
+    if(!throttleLocked){
+        int throttle = map(analogRead(INPUT_THROTTLE), 0, 1023, -10, 10);
+
+        
+        if(throttle > 2 || throttle < -2){
+            int throttle_out = ((int)data.throttle+throttle);
+    
+            if(throttle_out > 250){
+                throttle_out = 250;
+            }else if(throttle_out < 0){
+                throttle_out = 0;
+            }
+    
+            data.throttle = (byte)throttle_out;
         }
 
-        data.throttle = (byte)throttle_out;
-    }  
+        if(data.throttle < 10){
+            writeDisply("", "Throttle: "+String(map((int)data.throttle, 0, 250, 0, 100))+" %   ");
+        }else if(data.throttle > 9 && data.throttle < 100){
+            writeDisply("", "Throttle: "+String(map((int)data.throttle, 0, 250, 0, 100))+" %  ");
+        }else{
+            writeDisply("", "Throttle: "+String(map((int)data.throttle, 0, 250, 0, 100))+" % ");
+        }
+        
+    }
 
-    */
-  
-    //Serial.println("Throttle: "+String(throttle)+" - Data.throttle: "+String(data.throttle)+" YAW: "+String(data.yaw));
+    Serial.println("Pitch: "+String(analogRead(INPUT_PITCH))+" - Roll: "+String(data.roll)+" - Yaw: "+String(data.yaw)); 
 }
 
 void sendInstructions()
@@ -209,17 +231,28 @@ void sendInstructions()
 
 void getDroneFeedback()
 {
-    if (radio.available())
-    {
+    if (radio.available()){
+        lastFeedbackResponse = millis();
         radio.read(&feedback, sizeof(feedback));
-        Serial.println("Battery: "+String(feedback.battery)+" V");
+        Serial.println("Battery: "+String(feedback.battery)+"v");
+        setBatteryIndikator(feedback.battery);
+        //throttleLocked = false;
     }
+    /*
+    long mil = millis();
+    long what = (mil-lastFeedbackResponse);
+    Serial.println("Delay: "+String(what));
+    if(what > feedbackResponseTimeout){
+        throttleLocked = true;
+        writeDisply("Connection lost!", "Throttle locked!");
+        Serial.println("Connection lost!");
+    }
+    */
 }
-
+/*
 void writeDisply()
 {   
     if((currentTime-displayLastUpdated) > displayUpdaterate){
-
         lcd.setCursor(9,0);
         String battery_info = String(feedback.battery)+"v";
         lcd.print(battery_info);
@@ -229,4 +262,45 @@ void writeDisply()
         displayLastUpdated = currentTime;
     }
 }
+*/
 
+void writeDisply(String l1, String l2)
+{   
+    if(l1 != ""){
+        for(int i = 0; i < (16 - l1.length()); i++) {
+            l1 += " ";
+        }
+
+        lcd.setCursor(0,0);
+        lcd.print(l1);
+    }
+
+    if(l2 != ""){
+        for(int i = 0; i < (16 - l2.length()); i++) {
+            l2 += " ";
+        }
+            
+        lcd.setCursor(0,1);
+        lcd.print(l2);
+    }
+}
+
+void setBatteryIndikator(float voltage)
+{
+    if(voltage < 5){
+        writeDisply("Battery: ???   ", "");
+        digitalWrite(LED_RED, LOW);
+        digitalWrite(LED_YELLOW, HIGH);
+        digitalWrite(LED_GREEN, LOW);
+    }else if(voltage < 13){
+        writeDisply("Battery: "+String(voltage)+"v! ", "");
+        digitalWrite(LED_RED, HIGH);
+        digitalWrite(LED_YELLOW, LOW);
+        digitalWrite(LED_GREEN, LOW);
+    }else{
+        writeDisply("Battery: "+String(voltage)+"v  ", "");
+        digitalWrite(LED_RED, LOW);
+        digitalWrite(LED_YELLOW, LOW);
+        digitalWrite(LED_GREEN, HIGH);
+    }
+}
