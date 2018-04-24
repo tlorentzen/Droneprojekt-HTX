@@ -35,6 +35,9 @@ struct instruction {
 struct drone_feedback {
     float battery;
     byte error = 0;
+    float yaw_error = 0.0;
+    float roll_error = 0.0;
+    float pitch_error = 0.0;
 };
 
 int value = 0;
@@ -78,8 +81,6 @@ void setup() {
     lcd.print("Initializing!");
     lcd.setCursor(0,1);
 
-    //10100101
-    
     radio.begin();
     radio.setPALevel(RF24_PA_LOW);
     radio.setAutoAck(false);
@@ -125,7 +126,7 @@ void loop() {
 
     previousTime = currentTime;
     currentTime = millis();
-    /*
+    
     if (Serial.available()) {
         String input1   = Serial.readString();
         String command1 = getValue(input1,'=',0);
@@ -141,7 +142,7 @@ void loop() {
         
         Serial.println(command1+"="+String(number1));
     }
-    */
+    
 
     readControllerValues();
     
@@ -178,10 +179,10 @@ String getValue(String data, char separator, int index)
 void readControllerValues()
 { 
     data.yaw   = map(analogRead(INPUT_YAW), 0, 1023, 0, 250);
-    data.roll  = map(analogRead(INPUT_ROLL), 0, 1023, 0, 250);
-    data.pitch = map(analogRead(INPUT_PITCH), 0, 1023, 0, 250);
+    data.roll  = map(analogRead(INPUT_PITCH), 0, 1023, 0, 250);
+    data.pitch = map(analogRead(INPUT_ROLL), 0, 1023, 0, 250);
 
-    if(data.yaw < 130 && data.yaw > 120){
+    if(data.yaw < 150 && data.yaw > 100){
         data.yaw = 125;
     }
 
@@ -194,21 +195,44 @@ void readControllerValues()
     }
 
     if(!throttleLocked){
-        int throttle = map(analogRead(INPUT_THROTTLE), 0, 1023, -10, 10);
-
+        int throttle = map(analogRead(INPUT_THROTTLE), 0, 1023, -100, 100);
+        float throttle_out = 0.0;
         
         if(throttle > 2 || throttle < -2){
-            int throttle_out = ((int)data.throttle+throttle);
-    
+
+            // Positive throttle
+            if(throttle > 2 && throttle < 31){
+                throttle_out = ((int)data.throttle+0.2);
+            }else if(throttle > 30 && throttle < 61){
+                throttle_out = ((int)data.throttle+0.6);
+            }else if(throttle > 60 && throttle < 100){
+                throttle_out = ((int)data.throttle+2);
+            }else if(throttle == 100){
+                throttle_out = ((int)data.throttle+10);
+            }
+
+            // Negative throttle
+            if(throttle < -2 && throttle > -31){
+                throttle_out = ((int)data.throttle-0.2);
+            }else if(throttle < -30 && throttle > -61){
+                throttle_out = ((int)data.throttle-0.6);
+            }else if(throttle < -60 && throttle > -100){
+                throttle_out = ((int)data.throttle-2);
+            }else if(throttle == -100){
+                throttle_out = ((int)data.throttle-10);
+            }
+
+            // Check for out of range values.
             if(throttle_out > 250){
                 throttle_out = 250;
             }else if(throttle_out < 0){
                 throttle_out = 0;
             }
     
-            data.throttle = (byte)throttle_out;
+            data.throttle = (byte)round(throttle_out);
         }
 
+        // Write out current throttle level to display
         if(data.throttle < 10){
             writeDisply("", "Throttle: "+String(map((int)data.throttle, 0, 250, 0, 100))+" %   ");
         }else if(data.throttle > 9 && data.throttle < 100){
@@ -218,8 +242,6 @@ void readControllerValues()
         }
         
     }
-
-    Serial.println("Pitch: "+String(analogRead(INPUT_PITCH))+" - Roll: "+String(data.roll)+" - Yaw: "+String(data.yaw)); 
 }
 
 void sendInstructions()
@@ -235,51 +257,27 @@ void getDroneFeedback()
         lastFeedbackResponse = millis();
         radio.read(&feedback, sizeof(feedback));
         Serial.println("Battery: "+String(feedback.battery)+"v");
+        Serial.println("P: "+String(feedback.pitch_error)+" R: "+String(feedback.roll_error)+" Y: "+String(feedback.yaw_error));
         setBatteryIndikator(feedback.battery);
         //throttleLocked = false;
     }
     /*
     long mil = millis();
-    long what = (mil-lastFeedbackResponse);
-    Serial.println("Delay: "+String(what));
-    if(what > feedbackResponseTimeout){
+    if((mil-lastFeedbackResponse) > feedbackResponseTimeout){
         throttleLocked = true;
         writeDisply("Connection lost!", "Throttle locked!");
         Serial.println("Connection lost!");
-    }
-    */
+    }*/
 }
-/*
-void writeDisply()
-{   
-    if((currentTime-displayLastUpdated) > displayUpdaterate){
-        lcd.setCursor(9,0);
-        String battery_info = String(feedback.battery)+"v";
-        lcd.print(battery_info);
-        lcd.setCursor(10,1);
-        String throttle_info = String(map((int)data.throttle, 0, 250, 0, 100))+" %";
-        lcd.print(throttle_info);
-        displayLastUpdated = currentTime;
-    }
-}
-*/
 
 void writeDisply(String l1, String l2)
 {   
     if(l1 != ""){
-        for(int i = 0; i < (16 - l1.length()); i++) {
-            l1 += " ";
-        }
-
         lcd.setCursor(0,0);
         lcd.print(l1);
     }
 
     if(l2 != ""){
-        for(int i = 0; i < (16 - l2.length()); i++) {
-            l2 += " ";
-        }
-            
         lcd.setCursor(0,1);
         lcd.print(l2);
     }
@@ -287,17 +285,20 @@ void writeDisply(String l1, String l2)
 
 void setBatteryIndikator(float voltage)
 {
-    if(voltage < 5){
-        writeDisply("Battery: ???   ", "");
+    if(voltage < 9){
+        // Battery voltage is at a state where nothing works.
+        writeDisply("Battery: ???    ", "");
         digitalWrite(LED_RED, LOW);
         digitalWrite(LED_YELLOW, HIGH);
         digitalWrite(LED_GREEN, LOW);
     }else if(voltage < 13){
+        // Battery voltage is at a state where landing is a good idea
         writeDisply("Battery: "+String(voltage)+"v! ", "");
         digitalWrite(LED_RED, HIGH);
         digitalWrite(LED_YELLOW, LOW);
         digitalWrite(LED_GREEN, LOW);
     }else{
+        // Battery voltage is fine and normal flight capability should be espected 
         writeDisply("Battery: "+String(voltage)+"v  ", "");
         digitalWrite(LED_RED, LOW);
         digitalWrite(LED_YELLOW, LOW);
