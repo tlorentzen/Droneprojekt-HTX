@@ -1,3 +1,5 @@
+
+
 /**
    The software is provided "as is", without any warranty of any kind.
    Feel free to edit it if needed.
@@ -6,12 +8,13 @@
 */
 
 // ---------------------------------------------------------------------------
-#include <Wire.h>
+#include "I2Cdev.h"
+#include "MPU6050_6Axis_MotionApps20.h"
+#include "Wire.h"
 #include <printf.h>
 #include <nRF24L01.h>
 #include <RF24.h>
 #include <ESC.h>
-#include <MPU9250.h>
 #include <VL53L0X.h>
 // ------------------- Define some constants for convenience -----------------
 
@@ -25,6 +28,9 @@ struct instruction {
   float kp = 0;
   double ki = 0;
   float kd = 0;
+  float yp = 0;
+  double yi = 0;
+  float yd = 0;
 } data;
 
 struct drone_feedback {
@@ -53,6 +59,16 @@ long acc_x, acc_y, acc_z;
 int temperature;
 float gyro_x_cal, gyro_y_cal, gyro_z_cal;
 
+
+
+uint16_t packetSize;
+uint16_t fifoCount;
+uint8_t fifoBuffer[64];
+Quaternion q;
+VectorFloat gravity;
+float ypr[3];
+
+
 float cx[10] = {0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0};
 float cy[10] = {0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0};
 float cz[10] = {0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0};
@@ -74,8 +90,8 @@ float measures[3]       = {0, 0, 0}; // Angular measures : [Yaw, Pitch, Roll]
 
 // Initialize RF24 object (NRF24L01+)
 RF24 radio(A0, 10);
-MPU9250 IMU(Wire, 0x68);
 VL53L0X lof;
+MPU6050 mpu;
 
 // Battery Voltage
 #define battery_voltage_pin A2
@@ -98,10 +114,6 @@ unsigned long previousTime = 0;
 unsigned long currentTime = 0;
 unsigned long gyroPreviousTime = 0;
 unsigned long gyroCurrentTime = 0;
-
-float KKp = 0;
-double KKi = 0;
-float KKd = 0;
 
 /**
    Setup configuration
@@ -135,6 +147,18 @@ void setup() {
     radio.printDetails();
   }
 
+  mpu.initialize();
+  mpu.dmpInitialize();
+  mpu.setXGyroOffset(92);
+  mpu.setYGyroOffset(34);
+  mpu.setZGyroOffset(-14);
+  mpu.setXAccelOffset(-2851);
+  mpu.setYAccelOffset(2847);
+  mpu.setZAccelOffset(907);
+  mpu.setDMPEnabled(true);
+  packetSize = mpu.dmpGetFIFOPacketSize();
+  fifoCount = mpu.getFIFOCount();
+  /*
   if (IMU.begin() < 0) {
     writeDebugData("IMU initialization unsuccessful");
     writeDebugData("Check IMU wiring or try cycling power");
@@ -153,6 +177,9 @@ void setup() {
     IMU.calibrateAccel();
     calibrateMpu9250();
   }
+  */
+
+  calibrateMpu9250();
 
   M1.arm();
   M2.arm();
@@ -203,73 +230,30 @@ void loop() {
 
 void readMPU()
 {
-  gyroPreviousTime = gyroCurrentTime;
-  gyroCurrentTime = millis();
-  
-  IMU.readSensor();
-
-  acc_x = IMU.getAccelX_mss();
-  acc_y = IMU.getAccelY_mss();
-  acc_z = IMU.getAccelZ_mss();
-  temperature = IMU.getTemperature_C();
-  gyro_x = IMU.getGyroX_rads();
-  gyro_y = IMU.getGyroY_rads();
-  gyro_z = IMU.getGyroZ_rads();
-
-  float calcTime = ((gyroCurrentTime - gyroPreviousTime) / 1000);
-  float incY = 0;
-  float incX = 0;
-  float gyroY = 0;
-  float gyroX = 0;
-  float xh = 0;
-  float yh = 0;
-  float var_compass = 0;
-
-  //Beregning for  hældningsvinklen for  x- and y-aksen.
-  incY = atan(IMU.getAccelX_mss() / sqrt((IMU.getAccelY_mss() * IMU.getAccelY_mss()) + (IMU.getAccelZ_mss() * IMU.getAccelZ_mss())));
-  incX = atan(IMU.getAccelY_mss() / sqrt((IMU.getAccelX_mss() * IMU.getAccelX_mss()) + (IMU.getAccelZ_mss() * IMU.getAccelZ_mss())));
-
-  //supplementary filter, hvor orientationen bliver finpudset med dataene fra gyroskopet
-  gyroY = incY + IMU.getGyroY_rads() * calcTime;
-  gyroX = incX + IMU.getGyroX_rads() * calcTime;
-
-  xh = IMU.getMagX_uT() * cos(IMU.getAccelY_mss()) + IMU.getMagY_uT() * sin(IMU.getAccelY_mss()) - IMU.getMagZ_uT() * cos(IMU.getAccelX_mss()) * sin(IMU.getAccelY_mss());
-  yh = IMU.getMagY_uT() * cos(IMU.getAccelX_mss()) + IMU.getMagZ_uT() * sin(IMU.getAccelX_mss());
-
-  var_compass = atan2((double)yh, (double)xh) * (180 / PI) - 90;
-
-  if (var_compass > 0) {
-    var_compass = var_compass - 360;
+  while (fifoCount < packetSize) {
+      fifoCount = mpu.getFIFOCount();
   }
 
-  var_compass = 360 + var_compass;
+  if (fifoCount == 1024) {
+      mpu.resetFIFO();
+  }else{
+    if (fifoCount % packetSize != 0) {
+      mpu.resetFIFO();
+    }else{
+      while (fifoCount >= packetSize) {
+          mpu.getFIFOBytes(fifoBuffer,packetSize);
+          fifoCount -= packetSize;
+      }
 
-  gyroX = gyroX * 180 / PI;
-  gyroY = gyroY * 180 / PI;
+      mpu.dmpGetQuaternion(&q,fifoBuffer);
+      mpu.dmpGetGravity(&gravity,&q);
+      mpu.dmpGetYawPitchRoll(ypr,&q,&gravity);            
 
-  for (int i = 0; i < 9; i++) {
-    cx[i] = cx[i + 1];
-    cy[i] = cy[i + 1];
-    cz[i] = cz[i + 1];
+      measures[YAW]   = (ypr[0]*180/PI);
+      measures[PITCH] = (ypr[2]*180/PI);
+      measures[ROLL]  = (ypr[1]*180/PI);
+    }
   }
-
-  cx[9] = gyroX;
-  cy[9] = gyroY;
-  cz[9] = var_compass;
-
-  xAvg = 0.0;
-  yAvg = 0.0;
-  zAvg = 0.0;
-
-  for (int i = 0; i < 10; i++) {
-    xAvg = (xAvg + cx[i]);
-    yAvg = (yAvg + cy[i]);
-    zAvg = (zAvg + cz[i]);
-  }
-
-  measures[ROLL]  = (xAvg / 10);
-  measures[PITCH] = (yAvg / 10);
-  measures[YAW]   = (zAvg / 10);
 }
 
 /**
@@ -283,16 +267,17 @@ void readMPU()
    @return void
 */
 void calibrateMpu9250() {
-  for (int cal_int = 0; cal_int < 1000; cal_int++) {
+  for (int cal_int = 0; cal_int < 2000; cal_int++) {
     readMPU();
-    gyro_x_cal += measures[ROLL];
-    gyro_y_cal += measures[PITCH];
-    gyro_z_cal += measures[YAW];
-    delay(3);
+    if(cal_int > 499){
+      gyro_x_cal += measures[ROLL];
+      gyro_y_cal += measures[PITCH];
+      gyro_z_cal += measures[YAW];
+    }
   }
-  gyro_x_cal /= 1000;
-  gyro_y_cal /= 1000;
-  gyro_z_cal /= 1000;
+  gyro_x_cal /= 1500;
+  gyro_y_cal /= 1500;
+  gyro_z_cal /= 1500;
 }
 
 /**
@@ -331,9 +316,9 @@ void applyMotorSpeed() {
 */
 void automation() {
 
-  float  Kp[3]       = {0, data.kp, data.kp}; // P coefficients in that order : Yaw, Pitch, Roll //ku = 0.21
-  double Ki[3]       = {0, data.ki, data.ki};  // I coefficients in that order : Yaw, Pitch, Roll
-  float  Kd[3]       = {0, data.kd, data.kd};    // D coefficients in that order : Yaw, Pitch, Roll
+  float  Kp[3]       = {data.yp, data.kp, data.kp}; // P coefficients in that order : Yaw, Pitch, Roll //ku = 0.21
+  double Ki[3]       = {data.yi, data.ki, data.ki};  // I coefficients in that order : Yaw, Pitch, Roll
+  float  Kd[3]       = {data.yd, data.kd, data.kd};    // D coefficients in that order : Yaw, Pitch, Roll
   float  deltaErr[3] = {0, 0, 0};    // Error deltas in that order :  Yaw, Pitch, Roll
   float  yaw         = 0;
   float  pitch       = 0;
@@ -407,8 +392,8 @@ void automation() {
    @return void
 */
 void calculateErrors() {
-  //errors[YAW]   = (measures[YAW]-gyro_z_cal)   - instruction[YAW];
-  errors[YAW]   = instruction[YAW];
+  errors[YAW]   = (measures[YAW]-gyro_z_cal)   - instruction[YAW];
+  //errors[YAW]   = instruction[YAW];
   errors[PITCH] = (measures[PITCH]-gyro_y_cal) - instruction[PITCH];
   errors[ROLL]  = (measures[ROLL]-gyro_x_cal)  - instruction[ROLL];
 

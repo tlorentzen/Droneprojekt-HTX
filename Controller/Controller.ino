@@ -30,14 +30,18 @@ struct instruction {
     float kp = 0;
     double ki = 0;
     float kd = 0;
+    float yp = 0;
+    double yi = 0;
+    float yd = 0;
 };
 
 struct drone_feedback {
     float battery;
-    byte error = 0;
+    byte  error = 0;
     float yaw_error = 0.0;
     float roll_error = 0.0;
     float pitch_error = 0.0;
+    long  loop_time = 0;
 };
 
 int value = 0;
@@ -138,6 +142,12 @@ void loop() {
             data.ki = number1;
         }else if(command1 == "d"){
             data.kd = number1;
+        }else if(command1 == "yp"){
+            data.yp = number1;
+        }else if(command1 == "yi"){
+            data.yi = number1;
+        }else if(command1 == "yd"){
+            data.yd = number1;
         }
         
         Serial.println(command1+"="+String(number1));
@@ -181,6 +191,8 @@ void readControllerValues()
     data.yaw   = map(analogRead(INPUT_YAW), 0, 1023, 0, 250);
     data.roll  = map(analogRead(INPUT_PITCH), 0, 1023, 0, 250);
     data.pitch = map(analogRead(INPUT_ROLL), 0, 1023, 0, 250);
+
+    //Serial.println("Yaw: "+String(analogRead(INPUT_YAW)));
 
     if(data.yaw < 150 && data.yaw > 100){
         data.yaw = 125;
@@ -259,6 +271,7 @@ void getDroneFeedback()
         Serial.println("Battery: "+String(feedback.battery)+"v");
         Serial.println("P: "+String(feedback.pitch_error)+" R: "+String(feedback.roll_error)+" Y: "+String(feedback.yaw_error));
         setBatteryIndikator(feedback.battery);
+        Serial.println("LoopTime: "+String(feedback.loop_time));
         //throttleLocked = false;
     }
     /*
