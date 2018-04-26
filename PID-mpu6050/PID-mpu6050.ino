@@ -1,5 +1,3 @@
-
-
 /**
    The software is provided "as is", without any warranty of any kind.
    Feel free to edit it if needed.
@@ -21,16 +19,13 @@
 bool debug = false;
 
 struct instruction {
-  byte throttle;
+  long throttle;
   byte yaw;
   byte pitch;
   byte roll;
   float kp = 0;
   double ki = 0;
   float kd = 0;
-  float yp = 0;
-  double yi = 0;
-  float yd = 0;
 } data;
 
 struct drone_feedback {
@@ -158,6 +153,12 @@ void setup() {
   mpu.setDMPEnabled(true);
   packetSize = mpu.dmpGetFIFOPacketSize();
   fifoCount = mpu.getFIFOCount();
+
+  lof.init();
+  lof.setTimeout(10);
+  lof.setTimeout(500);
+  lof.setSignalRateLimit(0.1);
+  lof.setMeasurementTimingBudget(20000);
   /*
   if (IMU.begin() < 0) {
     writeDebugData("IMU initialization unsuccessful");
@@ -211,7 +212,6 @@ void loop() {
 
   // 2. Then, translate received data into usable values
   getFlightInstruction();
-  //instruction[YAW] = 0; ///////// WHAT?
 
   // 3. Calculate errors comparing received instruction with measures
   calculateErrors();
@@ -223,6 +223,8 @@ void loop() {
   applyMotorSpeed();
 
   sendFeedback();
+
+  //lof.readRangeSingleMillimeters();
 
   long end_of_loop = micros();
   feedback.loop_time = (end_of_loop-start_of_loop);
@@ -316,9 +318,9 @@ void applyMotorSpeed() {
 */
 void automation() {
 
-  float  Kp[3]       = {data.yp, data.kp, data.kp}; // P coefficients in that order : Yaw, Pitch, Roll //ku = 0.21
-  double Ki[3]       = {data.yi, data.ki, data.ki};  // I coefficients in that order : Yaw, Pitch, Roll
-  float  Kd[3]       = {data.yd, data.kd, data.kd};    // D coefficients in that order : Yaw, Pitch, Roll
+  float  Kp[3]       = {data.kp, 1.6, 1.6}; // P coefficients in that order : Yaw, Pitch, Roll //ku = 0.21
+  double Ki[3]       = {data.ki, 0.000005, 0.000005};  // I coefficients in that order : Yaw, Pitch, Roll
+  float  Kd[3]       = {data.kd, 85.0, 85.0};    // D coefficients in that order : Yaw, Pitch, Roll
   float  deltaErr[3] = {0, 0, 0};    // Error deltas in that order :  Yaw, Pitch, Roll
   float  yaw         = 0;
   float  pitch       = 0;
@@ -414,9 +416,9 @@ void calculateErrors() {
 */
 void getFlightInstruction() {
   instruction[YAW]      = map(data.yaw, 0, 250, -180, 180);
-  instruction[PITCH]    = map(data.pitch, 0, 250, 33, -33);
-  instruction[ROLL]     = map(data.roll, 0, 250, 33, -33);
-  instruction[THROTTLE] = map(data.throttle, 0, 250, 1000, 2000);
+  instruction[PITCH]    = map(data.pitch, 0, 250, 10, -10);
+  instruction[ROLL]     = map(data.roll, 0, 250, 10, -10);
+  instruction[THROTTLE] = map(data.throttle, 0, 1000, 1000, 2000);
 }
 
 void sendFeedback() {

@@ -23,16 +23,13 @@ unsigned int feedbackResponseTimeout = 2500;
 bool throttleLocked = false;
 
 struct instruction {
-    byte throttle = 0;
+    long throttle = 0;
     byte yaw = 125;
     byte pitch = 125;
     byte roll = 125;
     float kp = 0;
     double ki = 0;
     float kd = 0;
-    float yp = 0;
-    double yi = 0;
-    float yd = 0;
 };
 
 struct drone_feedback {
@@ -142,12 +139,6 @@ void loop() {
             data.ki = number1;
         }else if(command1 == "d"){
             data.kd = number1;
-        }else if(command1 == "yp"){
-            data.yp = number1;
-        }else if(command1 == "yi"){
-            data.yi = number1;
-        }else if(command1 == "yd"){
-            data.yd = number1;
         }
         
         Serial.println(command1+"="+String(number1));
@@ -207,50 +198,50 @@ void readControllerValues()
     }
 
     if(!throttleLocked){
-        int throttle = map(analogRead(INPUT_THROTTLE), 0, 1023, -100, 100);
-        float throttle_out = 0.0;
-        
-        if(throttle > 2 || throttle < -2){
+        int throttle = map(analogRead(INPUT_THROTTLE), 0, 1023, -1000, 1000);
+        long throttle_out = 0;
+
+        if(throttle > 5 || throttle < -5){
 
             // Positive throttle
-            if(throttle > 2 && throttle < 31){
-                throttle_out = ((int)data.throttle+0.2);
-            }else if(throttle > 30 && throttle < 61){
-                throttle_out = ((int)data.throttle+0.6);
-            }else if(throttle > 60 && throttle < 100){
+            if(throttle > 5 && throttle < 300){
+                throttle_out = ((int)data.throttle+1); // throttle_out = throttle_out * gain
+            }else if(throttle >= 300 && throttle < 600){
                 throttle_out = ((int)data.throttle+2);
-            }else if(throttle == 100){
-                throttle_out = ((int)data.throttle+10);
+            }else if(throttle >= 600 && throttle < 1000){
+                throttle_out = ((int)data.throttle+2);
+            }else if(throttle == 1000){
+                throttle_out = ((int)data.throttle+5);
             }
 
             // Negative throttle
-            if(throttle < -2 && throttle > -31){
-                throttle_out = ((int)data.throttle-0.2);
-            }else if(throttle < -30 && throttle > -61){
-                throttle_out = ((int)data.throttle-0.6);
-            }else if(throttle < -60 && throttle > -100){
+            if(throttle < -5 && throttle > -300){
+                throttle_out = ((int)data.throttle-1);
+            }else if(throttle <= -300 && throttle > -600){
                 throttle_out = ((int)data.throttle-2);
-            }else if(throttle == -100){
-                throttle_out = ((int)data.throttle-10);
+            }else if(throttle <= -600 && throttle > -1000){
+                throttle_out = ((int)data.throttle-2);
+            }else if(throttle == -1000){
+                throttle_out = ((int)data.throttle-5);
             }
 
             // Check for out of range values.
-            if(throttle_out > 250){
-                throttle_out = 250;
+            if(throttle_out > 1000){
+                throttle_out = 1000;
             }else if(throttle_out < 0){
                 throttle_out = 0;
             }
     
-            data.throttle = (byte)round(throttle_out);
+            data.throttle = throttle_out;
         }
 
         // Write out current throttle level to display
-        if(data.throttle < 10){
-            writeDisply("", "Throttle: "+String(map((int)data.throttle, 0, 250, 0, 100))+" %   ");
-        }else if(data.throttle > 9 && data.throttle < 100){
-            writeDisply("", "Throttle: "+String(map((int)data.throttle, 0, 250, 0, 100))+" %  ");
+        if(data.throttle < 100){
+            writeDisply("", "Throttle: "+String(map((int)data.throttle, 0, 1000, 0, 100))+" %   ");
+        }else if(data.throttle >= 100 && data.throttle < 1000){
+            writeDisply("", "Throttle: "+String(map((int)data.throttle, 0, 1000, 0, 100))+" %  ");
         }else{
-            writeDisply("", "Throttle: "+String(map((int)data.throttle, 0, 250, 0, 100))+" % ");
+            writeDisply("", "Throttle: "+String(map((int)data.throttle, 0, 1000, 0, 100))+" % ");
         }
         
     }
