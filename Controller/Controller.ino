@@ -93,16 +93,7 @@ void setup() {
     radio.openReadingPipe(1, pipeIn);
     radio.startListening();
     radio.printDetails();
-  
-    //data.throttle = 10;
-    /*
-    while(analogRead(speeder) > 0){
-      delay(500);
-      Serial.println("Please set throttle to zero!");
-    }
-    */
-  
-    
+
     digitalWrite(LED_RED, LOW);
     digitalWrite(LED_YELLOW, LOW);
     digitalWrite(LED_GREEN, LOW);
@@ -250,10 +241,12 @@ void readControllerValues()
 }
 
 void sendInstructions()
-{
-    radio.stopListening();
-    radio.write(&data, sizeof(data));
-    radio.startListening();
+{   
+    if(firstPackageRecieved){
+        radio.stopListening();
+        radio.write(&data, sizeof(data));
+        radio.startListening();
+    }
 }
 
 void getDroneFeedback()
