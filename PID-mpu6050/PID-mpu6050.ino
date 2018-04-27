@@ -377,8 +377,8 @@ void calculateErrors() {
 */
 void getFlightInstruction() {
     instruction[YAW]      = map(data.yaw, 0, 250, -180, 180);
-    instruction[PITCH]    = map(data.pitch, 0, 250, 10, -10);
-    instruction[ROLL]     = map(data.roll, 0, 250, 10, -10);
+    instruction[PITCH]    = map(data.pitch, 0, 250, 20, -20);
+    instruction[ROLL]     = map(data.roll, 0, 250, 20, -20);
 
     long mill = millis();
     if(mill-lastRecievedTransmission > lastTrasmissionTimeout && data.throttle > 0){
