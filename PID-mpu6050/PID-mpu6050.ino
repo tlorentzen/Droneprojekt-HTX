@@ -35,6 +35,7 @@ struct drone_feedback {
   float roll_error = 0.0;
   float pitch_error = 0.0;
   long  loop_time = 0;
+  long  throttle = 0;
 } feedback;
 
 #define PI acos(-1)
@@ -49,13 +50,7 @@ struct drone_feedback {
 float instruction[4];
 
 // ----------------------- MPU variables -------------------------------------
-int gyro_x, gyro_y, gyro_z;
-long acc_x, acc_y, acc_z;
-int temperature;
 float gyro_x_cal, gyro_y_cal, gyro_z_cal;
-
-
-
 uint16_t packetSize;
 uint16_t fifoCount;
 uint8_t fifoBuffer[64];
@@ -63,13 +58,6 @@ Quaternion q;
 VectorFloat gravity;
 float ypr[3];
 
-
-float cx[10] = {0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0};
-float cy[10] = {0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0};
-float cz[10] = {0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0};
-float xAvg = 0.0;
-float yAvg = 0.0;
-float zAvg = 0.0;
 // ----------------------- Variables for servo signal generation -------------
 unsigned long pulse_length_esc1 = 1000,
               pulse_length_esc2 = 1000,
@@ -97,6 +85,8 @@ unsigned long lastFeedbackTransmission = 0;
 unsigned long feedbackDelay = 1100; // 1 seconds
 unsigned long lastTrasmissionTimeout = 1000; // 1 second
 
+bool firstPackageRecieved = false;
+
 ESC M1 (8, 1000, 2000, 500);
 ESC M2 (9, 1000, 2000, 500);
 ESC M3 (6, 1000, 2000, 500);
@@ -107,8 +97,6 @@ int green_led = A1;
 
 unsigned long previousTime = 0;
 unsigned long currentTime = 0;
-unsigned long gyroPreviousTime = 0;
-unsigned long gyroCurrentTime = 0;
 
 /**
    Setup configuration
@@ -121,7 +109,6 @@ void setup() {
   }
 
   Wire.begin();
-
   pinMode(red_led, OUTPUT);
   pinMode(green_led, OUTPUT);
   digitalWrite(red_led, HIGH);
@@ -136,11 +123,13 @@ void setup() {
   radio.openReadingPipe(1, pipeIn);
   radio.openWritingPipe(pipeOut);
   radio.startListening();
-  writeDebugData("Done!");
+  
 
   if (debug) {
     radio.printDetails();
   }
+
+  writeDebugData("Done");
 
   mpu.initialize();
   mpu.dmpInitialize();
@@ -153,32 +142,6 @@ void setup() {
   mpu.setDMPEnabled(true);
   packetSize = mpu.dmpGetFIFOPacketSize();
   fifoCount = mpu.getFIFOCount();
-
-  lof.init();
-  lof.setTimeout(10);
-  lof.setTimeout(500);
-  lof.setSignalRateLimit(0.1);
-  lof.setMeasurementTimingBudget(20000);
-  /*
-  if (IMU.begin() < 0) {
-    writeDebugData("IMU initialization unsuccessful");
-    writeDebugData("Check IMU wiring or try cycling power");
-    while (1) {}
-  } else {
-    // setting the accelerometer full scale range to +/-8G
-    IMU.setAccelRange(MPU9250::ACCEL_RANGE_8G);
-    // setting the gyroscope full scale range to +/-500 deg/s
-    IMU.setGyroRange(MPU9250::GYRO_RANGE_500DPS);
-    // setting DLPF bandwidth to 20 Hz
-    IMU.setDlpfBandwidth(MPU9250::DLPF_BANDWIDTH_20HZ);
-    // setting SRD to 19 for a 50 Hz update rate
-    IMU.setSrd(19);
-
-    IMU.calibrateGyro();
-    IMU.calibrateAccel();
-    calibrateMpu9250();
-  }
-  */
 
   calibrateMpu9250();
 
@@ -204,7 +167,7 @@ void loop() {
   if (radio.available())
   {
     radio.read(&data, sizeof(data));
-    lastRecievedTransmission = currentTime;
+    lastRecievedTransmission = millis();
   }
 
   // 1. First, read angular values from MPU-6050
@@ -228,6 +191,7 @@ void loop() {
 
   long end_of_loop = micros();
   feedback.loop_time = (end_of_loop-start_of_loop);
+  writeDebugData(String(feedback.loop_time));
 }
 
 void readMPU()
@@ -334,9 +298,7 @@ void automation() {
 
   // Do not calculate anything if throttle is 0
   if (instruction[THROTTLE] >= 1012) {
-
-    //errors[YAW] = 0; //////// TODO ????
-
+    
     // Calculate sum of errors : Integral coefficients
     error_sum[YAW] += errors[YAW];
     error_sum[PITCH] += errors[PITCH];
@@ -395,7 +357,6 @@ void automation() {
 */
 void calculateErrors() {
   errors[YAW]   = (measures[YAW]-gyro_z_cal)   - instruction[YAW];
-  //errors[YAW]   = instruction[YAW];
   errors[PITCH] = (measures[PITCH]-gyro_y_cal) - instruction[PITCH];
   errors[ROLL]  = (measures[ROLL]-gyro_x_cal)  - instruction[ROLL];
 
@@ -415,15 +376,24 @@ void calculateErrors() {
    @return void
 */
 void getFlightInstruction() {
-  instruction[YAW]      = map(data.yaw, 0, 250, -180, 180);
-  instruction[PITCH]    = map(data.pitch, 0, 250, 10, -10);
-  instruction[ROLL]     = map(data.roll, 0, 250, 10, -10);
-  instruction[THROTTLE] = map(data.throttle, 0, 1000, 1000, 2000);
+    instruction[YAW]      = map(data.yaw, 0, 250, -180, 180);
+    instruction[PITCH]    = map(data.pitch, 0, 250, 10, -10);
+    instruction[ROLL]     = map(data.roll, 0, 250, 10, -10);
+
+    long mill = millis();
+    if(mill-lastRecievedTransmission > lastTrasmissionTimeout && data.throttle > 0){
+        instruction[THROTTLE] = 1450;
+        data.throttle = 450;
+    }else{
+        instruction[THROTTLE] = map(data.throttle, 0, 1000, 1000, 2000);
+    }
+
 }
 
 void sendFeedback() {
   if ((currentTime - lastFeedbackTransmission) > feedbackDelay) {
-    feedback.battery = read_battery_voltage();
+    feedback.battery  = read_battery_voltage();
+    feedback.throttle = data.throttle;
     radio.stopListening();
     radio.write(&feedback, sizeof(feedback));
     lastFeedbackTransmission = currentTime;

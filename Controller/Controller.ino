@@ -21,6 +21,7 @@ unsigned long displayLastUpdated = 0;
 unsigned long lastFeedbackResponse = 0;
 unsigned int feedbackResponseTimeout = 2500;
 bool throttleLocked = false;
+bool firstPackageRecieved = false;
 
 struct instruction {
     long throttle = 0;
@@ -39,6 +40,7 @@ struct drone_feedback {
     float roll_error = 0.0;
     float pitch_error = 0.0;
     long  loop_time = 0;
+    long  throttle = 0;
 };
 
 int value = 0;
@@ -264,6 +266,11 @@ void getDroneFeedback()
         setBatteryIndikator(feedback.battery);
         Serial.println("LoopTime: "+String(feedback.loop_time));
         //throttleLocked = false;
+
+        if(!firstPackageRecieved){
+          data.throttle = feedback.throttle;
+          firstPackageRecieved = true;
+        }
     }
     /*
     long mil = millis();
