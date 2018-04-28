@@ -23,9 +23,9 @@ struct instruction {
   byte yaw;
   byte pitch;
   byte roll;
-  float kp = 0;
+  float kp = 0.2;
   double ki = 0;
-  float kd = 0;
+  float kd = 20;
 } data;
 
 struct drone_feedback {
@@ -102,11 +102,15 @@ unsigned long currentTime = 0;
    Setup configuration
 */
 void setup() {
-
+  /*
   if (debug) {
     Serial.begin(9600);
     Serial.flush();
   }
+  */
+
+  Serial.begin(9600);
+  Serial.flush();
 
   Wire.begin();
   pinMode(red_led, OUTPUT);
@@ -116,7 +120,7 @@ void setup() {
 
   writeDebugData("Initializing radio...");
   radio.begin();
-  radio.setPALevel(RF24_PA_LOW);
+  radio.setPALevel(RF24_PA_MAX);
   radio.setAutoAck(false);
   radio.setDataRate(RF24_250KBPS);
   radio.setChannel(108);
@@ -143,6 +147,7 @@ void setup() {
   packetSize = mpu.dmpGetFIFOPacketSize();
   fifoCount = mpu.getFIFOCount();
 
+  delay(30000); // Let DMP-autocalibrat before reading values.
   calibrateMpu9250();
 
   M1.arm();
@@ -196,30 +201,30 @@ void loop() {
 
 void readMPU()
 {
-  while (fifoCount < packetSize) {
-      fifoCount = mpu.getFIFOCount();
-  }
-
-  if (fifoCount == 1024) {
-      mpu.resetFIFO();
-  }else{
-    if (fifoCount % packetSize != 0) {
-      mpu.resetFIFO();
-    }else{
-      while (fifoCount >= packetSize) {
-          mpu.getFIFOBytes(fifoBuffer,packetSize);
-          fifoCount -= packetSize;
-      }
-
-      mpu.dmpGetQuaternion(&q,fifoBuffer);
-      mpu.dmpGetGravity(&gravity,&q);
-      mpu.dmpGetYawPitchRoll(ypr,&q,&gravity);            
-
-      measures[YAW]   = (ypr[0]*180/PI);
-      measures[PITCH] = (ypr[2]*180/PI);
-      measures[ROLL]  = (ypr[1]*180/PI);
+    while (fifoCount < packetSize) {
+        fifoCount = mpu.getFIFOCount();
     }
-  }
+  
+    if (fifoCount == 1024) {
+        mpu.resetFIFO();
+    }else{
+        if (fifoCount % packetSize != 0) {
+            mpu.resetFIFO();
+        }else{
+            while (fifoCount >= packetSize) {
+                mpu.getFIFOBytes(fifoBuffer,packetSize);
+                fifoCount -= packetSize;
+            }
+      
+            mpu.dmpGetQuaternion(&q,fifoBuffer);
+            mpu.dmpGetGravity(&gravity,&q);
+            mpu.dmpGetYawPitchRoll(ypr,&q,&gravity);            
+      
+            measures[YAW]   = (ypr[0]*180/PI);
+            measures[PITCH] = (ypr[2]*180/PI);
+            measures[ROLL]  = (ypr[1]*180/PI);
+        }
+    }
 }
 
 /**
@@ -235,15 +240,13 @@ void readMPU()
 void calibrateMpu9250() {
   for (int cal_int = 0; cal_int < 2000; cal_int++) {
     readMPU();
-    if(cal_int > 499){
-      gyro_x_cal += measures[ROLL];
-      gyro_y_cal += measures[PITCH];
-      gyro_z_cal += measures[YAW];
-    }
+    gyro_x_cal += measures[ROLL];
+    gyro_y_cal += measures[PITCH];
+    gyro_z_cal += measures[YAW];
   }
-  gyro_x_cal /= 1500;
-  gyro_y_cal /= 1500;
-  gyro_z_cal /= 1500;
+  gyro_x_cal /= 2000;
+  gyro_y_cal /= 2000;
+  gyro_z_cal /= 2000;
 }
 
 /**
@@ -383,11 +386,13 @@ void getFlightInstruction() {
     long mill = millis();
     if(mill-lastRecievedTransmission > lastTrasmissionTimeout && data.throttle > 0){
         instruction[THROTTLE] = 1450;
-        data.throttle = 450;
+        data.throttle         = 450;
+        instruction[YAW]      = 0;
+        instruction[PITCH]    = 0;
+        instruction[ROLL]     = 0;
     }else{
         instruction[THROTTLE] = map(data.throttle, 0, 1000, 1000, 2000);
     }
-
 }
 
 void sendFeedback() {

@@ -16,11 +16,8 @@ const uint64_t pipeIn  = 0xE7E8F0F0E1LL;
 
 unsigned long previousTime = 0;
 unsigned long currentTime = 0;
-unsigned long displayUpdaterate = 500;
-unsigned long displayLastUpdated = 0;
 unsigned long lastFeedbackResponse = 0;
 unsigned int feedbackResponseTimeout = 2500;
-bool throttleLocked = false;
 bool firstPackageRecieved = false;
 
 struct instruction {
@@ -28,9 +25,9 @@ struct instruction {
     byte yaw = 125;
     byte pitch = 125;
     byte roll = 125;
-    float kp = 0;
+    float kp = 0.2;
     double ki = 0;
-    float kd = 0;
+    float kd = 20;
 };
 
 struct drone_feedback {
@@ -57,9 +54,6 @@ drone_feedback feedback;
 #define INPUT_ROLL A2
 #define INPUT_PITCH A3
 
-char displayLine1[16];
-char displayLine2[16];
-
 void setup() {
     Wire.begin();
     
@@ -85,7 +79,7 @@ void setup() {
     lcd.setCursor(0,1);
 
     radio.begin();
-    radio.setPALevel(RF24_PA_LOW);
+    radio.setPALevel(RF24_PA_MAX);
     radio.setAutoAck(false);
     radio.setDataRate(RF24_250KBPS);
     radio.setChannel(108);
@@ -137,20 +131,11 @@ void loop() {
         Serial.println(command1+"="+String(number1));
     }
     
-
     readControllerValues();
     
     getDroneFeedback();
 
-    /*
-    int value = analogRead(speeder);
-    value = map(value, 0, 1023, 0, 250);
-    data.throttle = value;
-    //Serial.println(value);
-    */
-  
     sendInstructions();
-    
 }
 
 String getValue(String data, char separator, int index)
@@ -190,53 +175,50 @@ void readControllerValues()
         data.pitch = 125;
     }
 
-    if(!throttleLocked){
-        int throttle = map(analogRead(INPUT_THROTTLE), 0, 1023, -1000, 1000);
-        long throttle_out = 0;
+    int throttle = map(analogRead(INPUT_THROTTLE), 0, 1023, -1000, 1000);
+    long throttle_out = 0;
 
-        if(throttle > 5 || throttle < -5){
+    if(throttle > 5 || throttle < -5){
 
-            // Positive throttle
-            if(throttle > 5 && throttle < 300){
-                throttle_out = ((int)data.throttle+1); // throttle_out = throttle_out * gain
-            }else if(throttle >= 300 && throttle < 600){
-                throttle_out = ((int)data.throttle+2);
-            }else if(throttle >= 600 && throttle < 1000){
-                throttle_out = ((int)data.throttle+2);
-            }else if(throttle == 1000){
-                throttle_out = ((int)data.throttle+5);
-            }
-
-            // Negative throttle
-            if(throttle < -5 && throttle > -300){
-                throttle_out = ((int)data.throttle-1);
-            }else if(throttle <= -300 && throttle > -600){
-                throttle_out = ((int)data.throttle-2);
-            }else if(throttle <= -600 && throttle > -1000){
-                throttle_out = ((int)data.throttle-2);
-            }else if(throttle == -1000){
-                throttle_out = ((int)data.throttle-5);
-            }
-
-            // Check for out of range values.
-            if(throttle_out > 1000){
-                throttle_out = 1000;
-            }else if(throttle_out < 0){
-                throttle_out = 0;
-            }
-    
-            data.throttle = throttle_out;
+        // Positive throttle
+        if(throttle > 5 && throttle < 300){
+            throttle_out = ((int)data.throttle+1); // throttle_out = throttle_out * gain
+        }else if(throttle >= 300 && throttle < 600){
+            throttle_out = ((int)data.throttle+2);
+        }else if(throttle >= 600 && throttle < 1000){
+            throttle_out = ((int)data.throttle+2);
+        }else if(throttle == 1000){
+            throttle_out = ((int)data.throttle+5);
         }
 
-        // Write out current throttle level to display
-        if(data.throttle < 100){
-            writeDisply("", "Throttle: "+String(map((int)data.throttle, 0, 1000, 0, 100))+" %   ");
-        }else if(data.throttle >= 100 && data.throttle < 1000){
-            writeDisply("", "Throttle: "+String(map((int)data.throttle, 0, 1000, 0, 100))+" %  ");
-        }else{
-            writeDisply("", "Throttle: "+String(map((int)data.throttle, 0, 1000, 0, 100))+" % ");
+        // Negative throttle
+        if(throttle < -5 && throttle > -300){
+            throttle_out = ((int)data.throttle-1);
+        }else if(throttle <= -300 && throttle > -600){
+            throttle_out = ((int)data.throttle-2);
+        }else if(throttle <= -600 && throttle > -1000){
+            throttle_out = ((int)data.throttle-2);
+        }else if(throttle == -1000){
+            throttle_out = ((int)data.throttle-5);
         }
-        
+
+        // Check for out of range values.
+        if(throttle_out > 1000){
+            throttle_out = 1000;
+        }else if(throttle_out < 0){
+            throttle_out = 0;
+        }
+
+        data.throttle = throttle_out;
+    }
+
+    // Write out current throttle level to display
+    if(data.throttle < 100){
+        writeDisply("", "Throttle: "+String(map((int)data.throttle, 0, 1000, 0, 100))+" %   ");
+    }else if(data.throttle >= 100 && data.throttle < 1000){
+        writeDisply("", "Throttle: "+String(map((int)data.throttle, 0, 1000, 0, 100))+" %  ");
+    }else{
+        writeDisply("", "Throttle: "+String(map((int)data.throttle, 0, 1000, 0, 100))+" % ");
     }
 }
 
@@ -258,20 +240,12 @@ void getDroneFeedback()
         Serial.println("P: "+String(feedback.pitch_error)+" R: "+String(feedback.roll_error)+" Y: "+String(feedback.yaw_error));
         setBatteryIndikator(feedback.battery);
         Serial.println("LoopTime: "+String(feedback.loop_time));
-        //throttleLocked = false;
 
         if(!firstPackageRecieved){
-          data.throttle = feedback.throttle;
-          firstPackageRecieved = true;
+            data.throttle = feedback.throttle;
+            firstPackageRecieved = true;
         }
     }
-    /*
-    long mil = millis();
-    if((mil-lastFeedbackResponse) > feedbackResponseTimeout){
-        throttleLocked = true;
-        writeDisply("Connection lost!", "Throttle locked!");
-        Serial.println("Connection lost!");
-    }*/
 }
 
 void writeDisply(String l1, String l2)
