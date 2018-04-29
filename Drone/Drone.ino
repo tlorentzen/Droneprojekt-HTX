@@ -272,6 +272,7 @@ void applyMotorSpeed() {
 
    First PID errors are calculated based on MPU6050 messueres and controller inputs. 
    Then new pid values for each motor are calulated.
+   Inspired by https://github.com/lobodol/drone.
 
    @return void
 */
