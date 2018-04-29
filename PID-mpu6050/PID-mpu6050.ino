@@ -1,55 +1,35 @@
-/**
-   The software is provided "as is", without any warranty of any kind.
-   Feel free to edit it if needed.
-
-   @author tlorentzen <thomas@tlorentzen.net>
-*/
-
-// ---------------------------------------------------------------------------
 #include "I2Cdev.h"
 #include "MPU6050_6Axis_MotionApps20.h"
 #include "Wire.h"
-#include <printf.h>
 #include <nRF24L01.h>
 #include <RF24.h>
 #include <ESC.h>
 #include <VL53L0X.h>
-// ------------------- Define some constants for convenience -----------------
 
-bool debug = false;
-
+// Structs containing radio message structure for both instructions and feedback.
 struct instruction {
-  long throttle;
-  byte yaw;
-  byte pitch;
-  byte roll;
-  float kp = 0.2;
-  double ki = 0;
-  float kd = 20;
+  int throttle = 1000;
+  int yaw      = 0;
+  int pitch    = 0;
+  int roll     = 0;
 } data;
 
 struct drone_feedback {
-  float battery;
-  byte  error = 0;
-  float yaw_error = 0.0;
-  float roll_error = 0.0;
-  float pitch_error = 0.0;
-  long  loop_time = 0;
-  long  throttle = 0;
+  float battery = 0.0;
+  int  throttle = 1000;
 } feedback;
 
 #define PI acos(-1)
-
 #define YAW      0
 #define PITCH    1
 #define ROLL     2
 #define THROTTLE 3
 
-// ---------------- Receiver variables ---------------------------------------
-// Received instructions formatted with good units, in that order : [Yaw, Pitch, Roll, Throttle]
-float instruction[4];
+// Controller input variables
+// [Yaw, Pitch, Roll, Throttle]
+int instruction[4];
 
-// ----------------------- MPU variables -------------------------------------
+// MPU6050 Variables
 float gyro_x_cal, gyro_y_cal, gyro_z_cal;
 uint16_t packetSize;
 uint16_t fifoCount;
@@ -58,22 +38,20 @@ Quaternion q;
 VectorFloat gravity;
 float ypr[3];
 
-// ----------------------- Variables for servo signal generation -------------
+// Pulselength variables for ESC output
 unsigned long pulse_length_esc1 = 1000,
               pulse_length_esc2 = 1000,
               pulse_length_esc3 = 1000,
               pulse_length_esc4 = 1000;
 
-// ------------- Global variables used for PID automation --------------------
-float errors[3];                     // Measured errors (compared to instructions) : [Yaw, Pitch, Roll]
-float error_sum[3]      = {0, 0, 0}; // Error sums (used for integral component) : [Yaw, Pitch, Roll]
-float previous_error[3] = {0, 0, 0}; // Last errors (used for derivative component) : [Yaw, Pitch, Roll]
-float measures[3]       = {0, 0, 0}; // Angular measures : [Yaw, Pitch, Roll]
-// ---------------------------------------------------------------------------
+// PID error calculation variables
+float errors[3];                     // [Yaw, Pitch, Roll]
+float error_sum[3]      = {0, 0, 0}; // [Yaw, Pitch, Roll]
+float previous_error[3] = {0, 0, 0}; // [Yaw, Pitch, Roll]
+float measures[3]       = {0, 0, 0}; // [Yaw, Pitch, Roll] in degrees
 
 // Initialize RF24 object (NRF24L01+)
 RF24 radio(A0, 10);
-VL53L0X lof;
 MPU6050 mpu;
 
 // Battery Voltage
@@ -85,40 +63,33 @@ unsigned long lastFeedbackTransmission = 0;
 unsigned long feedbackDelay = 1100; // 1 seconds
 unsigned long lastTrasmissionTimeout = 1000; // 1 second
 
-bool firstPackageRecieved = false;
-
 ESC M1 (8, 1000, 2000, 500);
 ESC M2 (9, 1000, 2000, 500);
 ESC M3 (6, 1000, 2000, 500);
 ESC M4 (7, 1000, 2000, 500);
 
-int red_led = 5;
-int green_led = A1;
+#define RED_LED 5
+#define GREEN_LED A1
 
-unsigned long previousTime = 0;
 unsigned long currentTime = 0;
 
 /**
    Setup configuration
 */
-void setup() {
-  /*
-  if (debug) {
-    Serial.begin(9600);
-    Serial.flush();
-  }
-  */
-
-  Serial.begin(9600);
-  Serial.flush();
-
+void setup() 
+{
+  // Initialize I2C
   Wire.begin();
-  pinMode(red_led, OUTPUT);
-  pinMode(green_led, OUTPUT);
-  digitalWrite(red_led, HIGH);
-  digitalWrite(green_led, HIGH);
 
-  writeDebugData("Initializing radio...");
+  // Setup pin modes
+  pinMode(RED_LED, OUTPUT);
+  pinMode(GREEN_LED, OUTPUT);
+
+  // Prepare 
+  digitalWrite(RED_LED, HIGH);
+  digitalWrite(GREEN_LED, HIGH);
+
+  // Initialize radio communikation (nRF24L01+)
   radio.begin();
   radio.setPALevel(RF24_PA_MAX);
   radio.setAutoAck(false);
@@ -127,14 +98,8 @@ void setup() {
   radio.openReadingPipe(1, pipeIn);
   radio.openWritingPipe(pipeOut);
   radio.startListening();
-  
 
-  if (debug) {
-    radio.printDetails();
-  }
-
-  writeDebugData("Done");
-
+  // Initialize MPU6050 (Gyroscope)
   mpu.initialize();
   mpu.dmpInitialize();
   mpu.setXGyroOffset(92);
@@ -145,117 +110,153 @@ void setup() {
   mpu.setZAccelOffset(907);
   mpu.setDMPEnabled(true);
   packetSize = mpu.dmpGetFIFOPacketSize();
-  fifoCount = mpu.getFIFOCount();
+  fifoCount  = mpu.getFIFOCount();
 
-  delay(30000); // Let DMP-autocalibrat before reading values.
-  calibrateMpu9250();
+  // Wait for MPU6050 DMP values to become stable and the calibrate errors.
+  calibrateMpu6050();
 
+  // Arm ESC controllers
   M1.arm();
   M2.arm();
   M3.arm();
   M4.arm();
 
-  digitalWrite(red_led, LOW);
-  digitalWrite(green_led, HIGH);
+  // Everything was initialized with no errors, turning of red led.  
+  digitalWrite(RED_LED, LOW);
 }
 
 /**
    Main program loop
 */
-void loop() {
-  long start_of_loop = micros();
+void loop() 
+{
   // Keep track of time
-  previousTime = currentTime;
   currentTime = millis();
-
+  
   // Recieve controller transmissions if any.
-  if (radio.available())
-  {
-    radio.read(&data, sizeof(data));
-    lastRecievedTransmission = millis();
-  }
+  recieveInstructions();
 
-  // 1. First, read angular values from MPU-6050
+  // Read MPU6050 values
   readMPU();
 
-  // 2. Then, translate received data into usable values
-  getFlightInstruction();
+  // Calculate motors speed with PID controller
+  calculatePID();
 
-  // 3. Calculate errors comparing received instruction with measures
-  calculateErrors();
-
-  // 4. Calculate motors speed with PID controller
-  automation();
-
-  // 5. Apply motors speed
+  // Apply motors speed
   applyMotorSpeed();
 
+  // Send feedback to controller
   sendFeedback();
-
-  //lof.readRangeSingleMillimeters();
-
-  long end_of_loop = micros();
-  feedback.loop_time = (end_of_loop-start_of_loop);
-  writeDebugData(String(feedback.loop_time));
-}
-
-void readMPU()
-{
-    while (fifoCount < packetSize) {
-        fifoCount = mpu.getFIFOCount();
-    }
-  
-    if (fifoCount == 1024) {
-        mpu.resetFIFO();
-    }else{
-        if (fifoCount % packetSize != 0) {
-            mpu.resetFIFO();
-        }else{
-            while (fifoCount >= packetSize) {
-                mpu.getFIFOBytes(fifoBuffer,packetSize);
-                fifoCount -= packetSize;
-            }
-      
-            mpu.dmpGetQuaternion(&q,fifoBuffer);
-            mpu.dmpGetGravity(&gravity,&q);
-            mpu.dmpGetYawPitchRoll(ypr,&q,&gravity);            
-      
-            measures[YAW]   = (ypr[0]*180/PI);
-            measures[PITCH] = (ypr[2]*180/PI);
-            measures[ROLL]  = (ypr[1]*180/PI);
-        }
-    }
 }
 
 /**
-   Generate servo-signal on digital pins #4 #5 #6 #7 with a frequency of 250Hz (4ms period).
-   Direct port manipulation is used for performances.
-
-   This function might not take more than 2ms to run, which lets 2ms remaining to do other stuff.
-
-   @see https://www.arduino.cc/en/Reference/PortManipulation
+   Check the radio for any instructions and set new values 
+   if any are available.
 
    @return void
 */
-void calibrateMpu9250() {
-  for (int cal_int = 0; cal_int < 2000; cal_int++) {
-    readMPU();
-    gyro_x_cal += measures[ROLL];
-    gyro_y_cal += measures[PITCH];
-    gyro_z_cal += measures[YAW];
+void recieveInstructions()
+{
+  if (radio.available()){
+    radio.read(&data, sizeof(data));
+    lastRecievedTransmission = millis();
+    
+    if(data.yaw > 180){
+      data.yaw = 180;
+    }else if(data.yaw < -180){
+      data.yaw = -180;
+    }
+
+    if(data.pitch > 30){
+      data.pitch = 30;
+    }else if(data.pitch < -30){
+      data.pitch = -30;
+    }
+
+    if(data.roll > 30){
+      data.roll = 30;
+    }else if(data.roll < -30){
+      data.roll = -30;
+    }
+
+    instruction[YAW]      = data.yaw;
+    instruction[PITCH]    = data.pitch;
+    instruction[ROLL]     = data.roll;
+    instruction[THROTTLE] = data.throttle;
   }
-  gyro_x_cal /= 2000;
-  gyro_y_cal /= 2000;
-  gyro_z_cal /= 2000;
+
+  /*
+    Make sure that pitch, roll and yaw values are set 
+    to zero for stabelizing if connection to controller is lost. 
+
+    Also set throttle to 45% to make sure drone will land stedy on 
+    the ground if connnection is lost.
+    */
+  long mill = millis();
+  if((mill-lastRecievedTransmission) > lastTrasmissionTimeout && data.throttle > 1000){
+    instruction[THROTTLE] = 1450;
+    instruction[YAW]      = 0;
+    instruction[PITCH]    = 0;
+    instruction[ROLL]     = 0;
+    data.throttle         = 1450;
+  }
 }
 
 /**
-   Generate servo-signal on digital pins #4 #5 #6 #7 with a frequency of 250Hz (4ms period).
-   Direct port manipulation is used for performances.
+   Read MPU values for PID stabelizing.
+   This method sets x, y and z of the current posistion for PID stabelizing. 
 
-   This function might not take more than 2ms to run, which lets 2ms remaining to do other stuff.
+   @return void
+*/
+void readMPU()
+{
+  while (fifoCount < packetSize) {
+    fifoCount = mpu.getFIFOCount();
+  }
 
-   @see https://www.arduino.cc/en/Reference/PortManipulation
+  if (fifoCount == 1024) {
+    mpu.resetFIFO();
+  }else{
+    if (fifoCount % packetSize != 0) {
+      mpu.resetFIFO();
+    }else{
+      while (fifoCount >= packetSize) {
+        mpu.getFIFOBytes(fifoBuffer,packetSize);
+        fifoCount -= packetSize;
+      }
+
+      mpu.dmpGetQuaternion(&q,fifoBuffer);
+      mpu.dmpGetGravity(&gravity,&q);
+      mpu.dmpGetYawPitchRoll(ypr,&q,&gravity);            
+
+      measures[YAW]   = (ypr[0]*180/PI);
+      measures[PITCH] = (ypr[2]*180/PI);
+      measures[ROLL]  = (ypr[1]*180/PI);
+    }
+  }
+}
+
+/**
+   Find current stable MPU values for calculations of PID errors.
+
+   @return void
+*/
+void calibrateMpu6050() {
+  for (int cal_int = 0; cal_int < 2000; cal_int++) {
+    readMPU();
+    if(cal_int > 499){
+      gyro_x_cal += measures[ROLL];
+      gyro_y_cal += measures[PITCH];
+      gyro_z_cal += measures[YAW];
+    }
+  }
+  gyro_x_cal /= 1500;
+  gyro_y_cal /= 1500;
+  gyro_z_cal /= 1500;
+}
+
+/**
+   Apply calculated pulses to motors.
 
    @return void
 */
@@ -267,32 +268,28 @@ void applyMotorSpeed() {
 }
 
 /**
-   Calculate motor speed for each motor of an X quadcopter depending on received instructions and measures from sensor
-   by applying PID control.
+   Calculate motor speed by applying PID control.
 
-   (A) (B)     x
-     \ /     z ↑
-      X       \|
-     / \       +----→ y
-   (C) (D)
-
-   Motors A & D run clockwise.
-   Motors B & C run counter-clockwise.
-
-   Each motor output is considered as a servomotor. As a result, value range is about 1000µs to 2000µs
+   First PID errors are calculated based on MPU6050 messueres and controller inputs. 
+   Then new pid values for each motor are calulated.
 
    @return void
 */
-void automation() {
+void calculatePID() {
 
-  float  Kp[3]       = {data.kp, 1.6, 1.6}; // P coefficients in that order : Yaw, Pitch, Roll //ku = 0.21
-  double Ki[3]       = {data.ki, 0.000005, 0.000005};  // I coefficients in that order : Yaw, Pitch, Roll
-  float  Kd[3]       = {data.kd, 85.0, 85.0};    // D coefficients in that order : Yaw, Pitch, Roll
-  float  deltaErr[3] = {0, 0, 0};    // Error deltas in that order :  Yaw, Pitch, Roll
+  float  Kp[3]       = {0.2, 1.6, 1.6}; // P coefficients in order : Yaw, Pitch, Roll //ku = 0.21
+  double Ki[3]       = {0.0, 0.000005, 0.000005}; // I coefficients in order : Yaw, Pitch, Roll
+  float  Kd[3]       = {20.0, 85.0, 85.0}; // D coefficients in order : Yaw, Pitch, Roll
+  float  deltaErr[3] = {0, 0, 0}; // Error deltas in order :  Yaw, Pitch, Roll
   float  yaw         = 0;
   float  pitch       = 0;
   float  roll        = 0;
 
+  // Calculate pid errors
+  errors[YAW]   = (measures[YAW]-gyro_z_cal)   - instruction[YAW];
+  errors[PITCH] = (measures[PITCH]-gyro_y_cal) - instruction[PITCH];
+  errors[ROLL]  = (measures[ROLL]-gyro_x_cal)  - instruction[ROLL];
+  
   // Initialize motor commands with throttle
   pulse_length_esc1 = instruction[THROTTLE];
   pulse_length_esc2 = instruction[THROTTLE];
@@ -303,23 +300,23 @@ void automation() {
   if (instruction[THROTTLE] >= 1012) {
     
     // Calculate sum of errors : Integral coefficients
-    error_sum[YAW] += errors[YAW];
+    error_sum[YAW]   += errors[YAW];
     error_sum[PITCH] += errors[PITCH];
-    error_sum[ROLL] += errors[ROLL];
+    error_sum[ROLL]  += errors[ROLL];
 
     // Calculate error delta : Derivative coefficients
-    deltaErr[YAW] = errors[YAW] - previous_error[YAW];
+    deltaErr[YAW]   = errors[YAW]   - previous_error[YAW];
     deltaErr[PITCH] = errors[PITCH] - previous_error[PITCH];
-    deltaErr[ROLL] = errors[ROLL] - previous_error[ROLL];
+    deltaErr[ROLL]  = errors[ROLL]  - previous_error[ROLL];
 
     // Save current error as previous_error for next time
-    previous_error[YAW] = errors[YAW];
+    previous_error[YAW]   = errors[YAW];
     previous_error[PITCH] = errors[PITCH];
-    previous_error[ROLL] = errors[ROLL];
+    previous_error[ROLL]  = errors[ROLL];
 
-    yaw = (errors[YAW] * Kp[YAW]) + (error_sum[YAW] * Ki[YAW]) + (deltaErr[YAW] * Kd[YAW]);
+    yaw   = (errors[YAW] * Kp[YAW]) + (error_sum[YAW] * Ki[YAW]) + (deltaErr[YAW] * Kd[YAW]);
     pitch = (errors[PITCH] * Kp[PITCH]) + (error_sum[PITCH] * Ki[PITCH]) + (deltaErr[PITCH] * Kd[PITCH]);
-    roll = (errors[ROLL] * Kp[ROLL]) + (error_sum[ROLL] * Ki[ROLL]) + (deltaErr[ROLL] * Kd[ROLL]);
+    roll  = (errors[ROLL] * Kp[ROLL]) + (error_sum[ROLL] * Ki[ROLL]) + (deltaErr[ROLL] * Kd[ROLL]);
 
     // Yaw - Lacet (Z axis)
     pulse_length_esc1 -= yaw;
@@ -354,47 +351,13 @@ void automation() {
 }
 
 /**
-   Calculate errors of Yaw, Pitch & Roll: this is simply the difference between the measure and the command.
+   Send feedback to controller.
+
+   - Battery voltage
+   - Current throttle
 
    @return void
 */
-void calculateErrors() {
-  errors[YAW]   = (measures[YAW]-gyro_z_cal)   - instruction[YAW];
-  errors[PITCH] = (measures[PITCH]-gyro_y_cal) - instruction[PITCH];
-  errors[ROLL]  = (measures[ROLL]-gyro_x_cal)  - instruction[ROLL];
-
-  feedback.yaw_error = errors[YAW];
-  feedback.roll_error = errors[ROLL];
-  feedback.pitch_error = errors[PITCH];
-}
-
-/**
-   Calculate real value of flight instructions from pulses length of each channel.
-
-   - Roll     : from -33° to 33°
-   - Pitch    : from -33° to 33°
-   - Yaw      : from -180°/sec to 180°/sec
-   - Throttle : from 1000µs to 2000µs
-
-   @return void
-*/
-void getFlightInstruction() {
-    instruction[YAW]      = map(data.yaw, 0, 250, -180, 180);
-    instruction[PITCH]    = map(data.pitch, 0, 250, 20, -20);
-    instruction[ROLL]     = map(data.roll, 0, 250, 20, -20);
-
-    long mill = millis();
-    if(mill-lastRecievedTransmission > lastTrasmissionTimeout && data.throttle > 0){
-        instruction[THROTTLE] = 1450;
-        data.throttle         = 450;
-        instruction[YAW]      = 0;
-        instruction[PITCH]    = 0;
-        instruction[ROLL]     = 0;
-    }else{
-        instruction[THROTTLE] = map(data.throttle, 0, 1000, 1000, 2000);
-    }
-}
-
 void sendFeedback() {
   if ((currentTime - lastFeedbackTransmission) > feedbackDelay) {
     feedback.battery  = read_battery_voltage();
@@ -416,13 +379,3 @@ float read_battery_voltage()
   return (analogRead(battery_voltage_pin) / 53.5);
 }
 
-/**
-   Debugging method to write out to terminal if debugging is activated.
-
-   @return void
-*/
-void writeDebugData(String text) {
-  if (debug) {
-    Serial.println(text);
-  }
-}
