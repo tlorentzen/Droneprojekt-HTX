@@ -3,7 +3,7 @@
 ### Aalborg Tekniske Gymnasium 2018
 #### Design og produktion EL
 
-**Gruppe 9:**
+**Gruppe 9:**<br>
 Peter Krull<br>
 Magnus Kaufmann Gjerde<br>
 Thomas Lorentzen
