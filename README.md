@@ -1,4 +1,4 @@
-![Droneproject](https://tlorentzen.net/img/drone.png "Droneproject")
+![Droneproject](https://raw.githubusercontent.com/tlorentzen/P5-drone/master/drone.png "Droneproject")
 # Droneprojekt - Aalborg Tekniske Gymnasium 2018
 
 Droneprojektet blev lavet som eksamensprojekt i foråret 2018 i følge med faget Design og produktion EL. Projektet gik ud på at udvikling egen remote controller og drone flight-conrtoller.
