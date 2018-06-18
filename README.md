@@ -10,6 +10,6 @@ nRF24l01+ - https://www.arduinolibraries.info/libraries/rf24 <br>
 ESC - https://github.com/RB-ENantel/RC_ESC
 
 ### Lavet af
-Peter Krull<br>
-Magnus Kaufmann Gjerde<br>
-Thomas Lorentzen
+Peter Krull (HTXz15)<br>
+Magnus Kaufmann Gjerde (HTXz15)<br>
+Thomas Lorentzen (HTXz15)
