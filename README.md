@@ -4,7 +4,7 @@
 Droneprojektet blev lavet som eksamensprojekt i foråret 2018 i følge med faget Design og produktion EL. Projektet gik ud på at udvikle egen remote controller og drone flight-controller.<br>
 
 Dronen kan ses in-action på følgende link:<br>
-https://www.youtube.com/watch?v=hIZCTBZsQ90
+<a href="https://www.youtube.com/watch?v=hIZCTBZsQ90" target="blank">https://www.youtube.com/watch?v=hIZCTBZsQ90</a>
 
 ### Tredjeparts biblioteker
 I2Cdev - https://github.com/jrowberg/i2cdevlib/tree/master/Arduino/I2Cdev <br>
