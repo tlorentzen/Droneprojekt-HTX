@@ -11,6 +11,8 @@ ESC - https://github.com/RB-ENantel/RC_ESC
 
 ### 3D-print
 
+De følgende 3D modeller er benyttet på dronen, stl-filerne er tilgænglige i mappen 3D-print:
+
 ![Batteryholder](https://raw.githubusercontent.com/tlorentzen/Droneprojekt-HTX/master/3D-print/Batteryholder.png "Batteryholder")
 
 ![Dronelegs](https://raw.githubusercontent.com/tlorentzen/Droneprojekt-HTX/master/3D-print/Dronelegs.png "Dronelegs")
