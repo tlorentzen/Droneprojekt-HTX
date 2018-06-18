@@ -9,6 +9,12 @@ MPU6050 - https://github.com/jrowberg/i2cdevlib/tree/master/Arduino/MPU6050 <br>
 nRF24l01 - https://www.arduinolibraries.info/libraries/rf24 <br>
 ESC - https://github.com/RB-ENantel/RC_ESC
 
+### 3D-print
+
+![Batteryholder](https://raw.githubusercontent.com/tlorentzen/Droneprojekt-HTX/master/3D-print/Batteryholder.png "Batteryholder")
+
+![Dronelegs](https://raw.githubusercontent.com/tlorentzen/Droneprojekt-HTX/master/3D-print/Dronelegs.png "Dronelegs")
+
 ### Lavet af
 Peter Krull (HTXz15)<br>
 Magnus Kaufmann Gjerde (HTXz15)<br>
