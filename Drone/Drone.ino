@@ -4,7 +4,6 @@
 #include <nRF24L01.h>
 #include <RF24.h>
 #include <ESC.h>
-#include <VL53L0X.h>
 
 // Structs containing radio message structure for both instructions and feedback.
 struct instruction {
