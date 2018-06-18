@@ -1,7 +1,10 @@
 ![Droneproject](https://raw.githubusercontent.com/tlorentzen/P5-drone/master/drone.png "Droneproject")
 # Droneprojekt - Aalborg Tekniske Gymnasium 2018
 
-Droneprojektet blev lavet som eksamensprojekt i foråret 2018 i følge med faget Design og produktion EL. Projektet gik ud på at udvikle egen remote controller og drone flight-controller.
+Droneprojektet blev lavet som eksamensprojekt i foråret 2018 i følge med faget Design og produktion EL. Projektet gik ud på at udvikle egen remote controller og drone flight-controller.<br><br>
+
+Dronen kan ses in-action på følgende link:<br>
+https://www.youtube.com/watch?v=hIZCTBZsQ90
 
 ### Tredjeparts biblioteker
 I2Cdev - https://github.com/jrowberg/i2cdevlib/tree/master/Arduino/I2Cdev <br>
